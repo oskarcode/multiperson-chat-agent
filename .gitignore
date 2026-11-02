@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+!.dev.vars.example
+dist/
+
+# Local cleanup/learning handoff artifacts. Keep these private by default because
+# they include absolute local paths for the shared guide-agent runtime.
+docs/familychat-access-standard-learning-guide.html
+docs/learning-agent/
+docs/diagrams/

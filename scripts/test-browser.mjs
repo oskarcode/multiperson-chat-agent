@@ -1,0 +1,67 @@
+import { chromium, expect } from '@playwright/test';
+import { createRequire } from 'node:module';
+import { localOptions } from './test-onboarding.mjs';
+const require = createRequire(import.meta.url);
+const { Miniflare } = createRequire(require.resolve('wrangler/package.json'))('miniflare');
+const mf = new Miniflare(localOptions(false));
+let browser;
+try {
+  const base = (await mf.ready).origin;
+  browser = await chromium.launch();
+  const ownerContext = await browser.newContext();
+  const guestContext = await browser.newContext();
+  const owner = await ownerContext.newPage();
+  const guest = await guestContext.newPage();
+  const errors = [];
+  const requests = [];
+  for (const page of [owner, guest]) {
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => requests.push(request.url()));
+  }
+  await owner.goto(base + '/');
+  await expect(owner.locator('#setupName')).toBeVisible();
+  await owner.locator('#setupName').fill('Parent');
+  await owner.locator('#setupEmail').fill('parent@example.com');
+  await owner.locator('#setupPassword').fill('group-password');
+  await owner.locator('#setupGroupName').fill('The test group');
+  await owner.locator('#setupButton').click();
+  await expect(owner.locator('#groupLabel')).toHaveText('The test group');
+  await expect(owner.locator('#roomTitle')).toHaveText('General room');
+  await owner.locator('#roomInviteButton').click();
+  const invite = await owner.locator('#roomInviteResult code').textContent();
+  await guest.goto(invite);
+  await expect(guest.locator('#joinName')).toBeVisible();
+  await guest.locator('#joinName').fill('Group member');
+  await expect(guest.locator('#joinEmail')).toHaveCount(0);
+  await expect(guest.locator('#joinPassword')).toHaveCount(0);
+  await guest.locator('#joinButton').click();
+  await expect(guest.locator('#roomTitle')).toHaveText('General room');
+  await expect(guest.locator('#app')).toBeVisible();
+  await expect(guest.locator('#pendingInvite')).toBeHidden();
+  await guest.locator('#composer').fill('Dinner at six?');
+  await guest.locator('#sendGroup').click();
+  await expect(guest.locator('#messages')).toContainText('Dinner at six?');
+  await owner.locator('#newWorkspace').fill('Private room');
+  await owner.locator('#newWorkspaceButton').click();
+  await expect(owner.locator('#roomTitle')).toHaveText('Private room');
+  await guest.reload();
+  await expect(guest.locator('#workspaces')).not.toContainText('Private room');
+  await owner.locator('#roomInviteButton').click();
+  const second = await owner.locator('#roomInviteResult code').textContent();
+  // A member who already joined with a name can accept another room invite while signed in.
+  await guest.goto(second);
+  await expect(guest.locator('#pendingInvite')).toBeVisible();
+  await guest.locator('#acceptInviteButton').click();
+  await expect(guest.locator('#roomTitle')).toHaveText('Private room');
+  await expect(guest.locator('#pendingInvite')).toBeHidden();
+  await owner.locator('#roomInviteButton').click();
+  await owner.locator('#manageInvitesButton').click();
+  await expect(owner.locator('#roomInviteResult button')).toHaveCount(1);
+  await owner.locator('#roomInviteResult button').click();
+  await expect(owner.locator('#roomInviteResult button')).toHaveCount(0);
+  await guest.setViewportSize({ width: 390, height: 844 });
+  await expect(guest.locator('#composer')).toBeVisible();
+  expect(await guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+  console.log('Browser tests passed: first-run owner onboarding, invite-link name-only join, chat, existing-member invite acceptance, room privacy, revocation, mobile layout.');
+} finally { await browser?.close(); await mf.dispose(); }
