@@ -14,7 +14,7 @@ This project is intentionally direct: no frontend build step, no external databa
 - Lets users send normal group messages or click **Ask Agent** for an AI response.
 - Supports optional Workers AI or Anthropic model settings.
 - Includes optional MCP connector plumbing for owner/admin tools.
-- Includes simple schedules, skills, and proactive follow-up examples as extension points.
+- Includes simple schedules, skills, and proactive follow-up examples as extension points while the agent runtime migrates toward Pi Durable primitives.
 
 ## Quick deploy with a coding agent
 
@@ -72,7 +72,7 @@ Browser UI
 - `src/chat-rpc.ts` — Durable Object RPC shape used by the Worker.
 - `src/protocol/chat.ts` — shared product types.
 - `src/auth/crypto.ts` and `src/auth/session.ts` — PBKDF2 password hashing and signed session cookies.
-- `src/agent/` — model catalog and Ask Agent prompt/provider calls.
+- `src/agent/` — model catalog and current Ask Agent prompt/provider calls; see `docs/pi-durable-migration.md` for the planned move to Pi Durable harness/tools.
 - `src/integrations/mcp.ts` — MCP Streamable HTTP/OAuth adapter.
 - `scripts/deploy-agent.mjs` — safe deployment helper for agents and humans.
 
@@ -150,7 +150,7 @@ Good extension points:
 - Stronger invite controls: max uses, invite labels, email allowlists, expiry UI.
 - Better notifications: email, push, unread counters, mentions.
 - Richer agent tool use: safe automatic tool routing, more MCP servers, tool result previews.
-- Scheduled jobs: turn stored schedule records into real background tasks.
+- Pi Durable runtime migration: replace the current direct model call path with Pi Durable sessions, tools, task-backed schedules, diagnostics, and event projection.
 - File attachments: R2-backed uploads with explicit size/type scanning.
 - Multi-tenant SaaS: one Durable Object per organization or account.
 - Search/export: transcript search, data export, retention controls.

@@ -58,8 +58,9 @@ export async function generateAgentReply(env: Env, chat: MultiPersonChatRpc, act
     : `Enabled group skills: ${enabledSkills.map((skill) => `${skill.title} (${skill.slug}): ${skill.description}`).join("; ")}.`;
   const scheduleNote = schedules.length === 0
     ? "No upcoming group schedules are saved."
-    : `Upcoming group schedules: ${schedules.slice(0, 12).map((schedule) => `${new Date(schedule.runAt).toISOString()} ${schedule.workspaceTitle ?? "Room"}: ${schedule.instruction}`).join("; ")}. If asked to create or change a schedule, explain that this starter currently saves schedules from Settings → Calendar.`;
-  const system = `You are Group Agent, a warm resident AI participant in a private group chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, group-friendly, and transparent about uncertainty. Answer directly; do not start with "Group Agent:" or your own name. Use short Markdown lists when they make the answer easier to scan. ${connectorNote} ${skillNote} ${scheduleNote}`;
+    : `Upcoming group schedules: ${schedules.slice(0, 12).map((schedule) => `${new Date(schedule.runAt).toISOString()} ${schedule.workspaceTitle ?? "Room"}: ${schedule.instruction}`).join("; ")}.`;
+  const scheduleCapability = "Do not claim that you created, saved, scheduled, or will deliver a reminder unless a schedule tool result is present in the conversation. This starter is migrating scheduling to Pi Durable tools; until those tools are wired in, tell users to create schedules from Settings → Calendar.";
+  const system = `You are Group Agent, a warm resident AI participant in a private group chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, group-friendly, and transparent about uncertainty. Answer directly; do not start with "Group Agent:" or your own name. Use short Markdown lists when they make the answer easier to scan. ${connectorNote} ${skillNote} ${scheduleNote} ${scheduleCapability}`;
   const prompt = `${system}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nAnswer directly without a name prefix.`;
   const messages = transcriptMessages(transcript, system);
 

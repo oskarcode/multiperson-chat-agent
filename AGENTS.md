@@ -1,6 +1,42 @@
 # MultiPerson Chat with Agent: deployment runbook
 
-This file tells coding agents how to deploy this repository safely.
+This file tells coding agents how to deploy this repository safely and how to preserve the intended architecture.
+
+## Architecture requirement: prefer Pi Durable primitives
+
+This starter is intended to converge on the Pi Durable runtime used by the current FamilyChat/Pi Durable project. Before adding custom agent, scheduling, tool, transcript, background-task, or recovery behavior, check whether `@earendil-works/pi-durable`, `@earendil-works/pi-ai`, or the existing `pi-durable-chat` implementation already provides the primitive.
+
+Do not add manual replacements for features that should be backed by Pi Durable, especially:
+
+- ad-hoc natural-language schedule parsing
+- custom agent tool loops
+- custom durable task queues
+- custom conversation transcript/event systems
+- custom schedule execution/retry logic
+- custom tool diagnostics/progress systems
+
+Preferred direction:
+
+- Keep app-specific product state here: members, invites, roles, workspace catalog, deployment helper, and public onboarding.
+- Move agent runtime behavior toward Pi Durable: sessions/conversations, entries, tools, tasks, schedule/list/cancel tools, tool events, diagnostics, and recovery.
+- If a temporary compatibility layer is unavoidable, document it as temporary and avoid expanding it.
+
+Reference project for the intended pattern:
+
+```text
+/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/pi-durable-chat
+```
+
+Relevant reference files:
+
+```text
+src/chat/chat.ts
+src/chat/session-runtime.ts
+src/worker/session.ts
+src/scheduling/tools.ts
+src/scheduling/schedule.ts
+src/protocol/schedules.ts
+```
 
 ## 0. Verify the project
 
