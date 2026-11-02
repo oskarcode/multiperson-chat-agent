@@ -64,7 +64,8 @@ Browser UI
 - `src/ui/page.ts` — browser HTML body markup.
 - `src/ui/styles.ts` — browser CSS.
 - `src/ui/client-script.ts` — browser state, fetch calls, rendering, and event handlers.
-- `src/durable/multiperson-chat.ts` — Durable Object lifecycle and public RPC delegation.
+- `src/durable/multiperson-chat.ts` — current app catalog Durable Object lifecycle and public RPC delegation.
+- `src/session/pi-session.ts` — first Pi Durable-backed session Durable Object used as the migration target for conversations/tools/tasks.
 - `src/durable/features/` — focused state features: members, invites, workspaces, messages, connectors, AI settings, schedules, skills, and follow-ups.
 - `src/durable/schema.ts` — SQLite schema.
 - `src/durable/rows.ts` — SQLite row-to-protocol mappers.
@@ -118,7 +119,8 @@ Authenticated routes:
 Cloudflare resources used:
 
 - Worker runtime for HTTP routes and browser UI.
-- Durable Object binding `CHAT` with SQLite storage.
+- Durable Object binding `CHAT` with SQLite storage for current app catalog/chat state.
+- Durable Object binding `SESSIONS` with SQLite storage for the Pi Durable migration target.
 - Workers AI binding `AI` for the default model path.
 - Worker secret `SESSION_SECRET` for session cookies.
 - Optional environment vars `AI_MODEL` and `AI_GATEWAY_ID`.

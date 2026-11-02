@@ -14,15 +14,16 @@ const code = readFileSync('.wrangler/dry-run/index.js', 'utf8');
 export function localOptions(persist, extraBindings = {}) {
   return convertV4MiniflareOptions({
     modules: [
-      { type: 'ESModule', path: resolve('test-runtime.js'), contents: `import handler, { MultiPersonChat } from './test-app.js';
+      { type: 'ESModule', path: resolve('test-runtime.js'), contents: `import handler, { MultiPersonChat, PiSession } from './test-app.js';
         export class TestGroup extends MultiPersonChat {
           async testSQL(sql, ...args) { return this.ctx.storage.sql.exec(sql, ...args).toArray(); }
         }
+        export { PiSession };
         export default handler;` },
       { type: 'ESModule', path: resolve('test-app.js'), contents: code },
     ],
     compatibilityDate: '2025-10-21', compatibilityFlags: ['nodejs_compat'],
-    durableObjects: { CHAT: { className: 'TestGroup', useSQLite: true } },
+    durableObjects: { CHAT: { className: 'TestGroup', useSQLite: true }, SESSIONS: { className: 'PiSession', useSQLite: true } },
     resourcePersistencePath: persist || undefined,
     bindings: { SESSION_SECRET: 'local-only-signing-key', ...extraBindings },
     // No remote AI binding: these tests cannot spend credits or access live data.
@@ -54,6 +55,10 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       const owner = owners.find(r => r.status === 201);
       const ownerCookie = owner.cookie;
       assert.equal((await request(mf, '/api/me', null, ownerCookie)).data.setup.groupName, 'Our test group');
+      const piStatus = await request(mf, '/api/pi/status', null, ownerCookie);
+      assert.equal(piStatus.status, 200);
+      assert.equal(piStatus.data.ok, true);
+      assert.equal(piStatus.data.rootConversationId, 1);
       const rooms = (await request(mf, '/api/workspaces', null, ownerCookie)).data.workspaces;
       assert.equal(rooms.length, 1); assert.equal(rooms[0].title, 'General room');
       const groupRoom = rooms[0].id;
@@ -75,6 +80,7 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       assert.equal(accepted.status, 200); assert.equal(accepted.data.workspaceId, privateRoom);
       assert.equal((await request(mf, '/api/invites/accept', { code: secondInvite.code }, guest.cookie)).status, 400);
       assert.equal((await request(mf, '/api/me', null, guest.cookie)).data.member.role, 'member');
+      assert.equal((await request(mf, '/api/pi/status', null, guest.cookie)).status, 403);
       const revoked = await invite(groupRoom);
       assert.equal((await request(mf, `/api/invites/${revoked.code}`, null, guest.cookie, 'DELETE')).status, 400);
       assert.equal((await request(mf, `/api/invites/${revoked.code}`, null, ownerCookie, 'DELETE')).status, 200);

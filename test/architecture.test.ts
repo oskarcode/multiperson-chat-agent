@@ -7,6 +7,12 @@ describe("architecture guardrails", () => {
     expect(pkg.dependencies?.["@earendil-works/pi-durable"]).toBeTruthy();
     expect(pkg.dependencies?.["@earendil-works/pi-ai"]).toBeTruthy();
     expect(pkg.dependencies?.["@earendil-works/chord"]).toBeTruthy();
+    expect(existsSync("src/session/pi-session.ts")).toBe(true);
+    expect(existsSync("src/session/harness.ts")).toBe(true);
+
+    const wrangler = readFileSync("wrangler.jsonc", "utf8");
+    expect(wrangler).toContain('"name": "SESSIONS"');
+    expect(wrangler).toContain('"class_name": "PiSession"');
 
     const agentGuide = readFileSync("AGENTS.md", "utf8");
     expect(agentGuide).toContain("prefer Pi Durable primitives");

@@ -13,11 +13,19 @@
       {
         "name": "CHAT",
         "class_name": "MultiPersonChat"
+      },
+      {
+        "name": "SESSIONS",
+        "class_name": "PiSession"
       }
     ]
   },
   "exports": {
     "MultiPersonChat": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "PiSession": {
       "type": "durable-object",
       "storage": "sqlite"
     }

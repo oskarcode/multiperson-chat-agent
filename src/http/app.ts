@@ -5,6 +5,7 @@ import { connectorRoutes } from "./routes/connectors";
 import { inviteRoutes } from "./routes/invites";
 import { mcpCallbackRoutes } from "./routes/mcp-callback";
 import { memberRoutes } from "./routes/members";
+import { piDurableRoutes } from "./routes/pi-durable";
 import { publicRoutes } from "./routes/public";
 import { scheduleRoutes } from "./routes/schedules";
 import { skillRoutes } from "./routes/skills";
@@ -17,6 +18,7 @@ export const createApp = (): Hono<AppBindings> => {
   // Keep route mounting explicit so beginners can find the file that owns each API group.
   app.route("/api", publicRoutes);
   app.route("/api/mcp", mcpCallbackRoutes);
+  app.route("/api/pi", piDurableRoutes);
   app.route("/api/members", memberRoutes);
   app.route("/api/workspaces", workspaceRoutes);
   app.route("/api/invites", inviteRoutes);

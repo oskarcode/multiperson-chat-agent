@@ -1,8 +1,9 @@
 import { MultiPersonChat } from "./durable/multiperson-chat";
 import { createApp } from "./http/app";
 import type { Env } from "./platform-env";
+import { PiSession } from "./session/pi-session";
 
-export { MultiPersonChat };
+export { MultiPersonChat, PiSession };
 
 const app = createApp();
 

@@ -9,6 +9,7 @@ Browser
   -> Worker static HTML/CSS/JS (`src/ui/app-html.ts`, assembled from `src/ui/page.ts`, `src/ui/styles.ts`, and `src/ui/client-script.ts`)
   -> Hono JSON API routes (`src/http/`)
   -> MultiPersonChat Durable Object (`src/durable/multiperson-chat.ts`)
+  -> PiSession Durable Object migration target (`src/session/pi-session.ts`)
   -> SQLite Durable Object storage
   -> optional Workers AI / Anthropic / MCP services
 ```
@@ -34,6 +35,8 @@ The Durable Object binding and exported class name are deployment state:
 - binding: `CHAT`
 - class/export: `MultiPersonChat`
 - storage: SQLite Durable Object storage
+
+A second Durable Object binding, `SESSIONS`, points at `PiSession`. It currently opens a Pi Durable `Harness` and root conversation as the migration target for future transcript, tool, task, and schedule behavior. Public chat traffic still uses the `CHAT` object until the migration is complete.
 
 ## Security boundaries
 
@@ -78,6 +81,8 @@ src/ui/client-script.ts         -> browser state, fetch callers, rendering, and 
 src/index.ts                    -> Worker entrypoint and Durable Object export
 src/http/app.ts                 -> Hono route mounting and page fallback
 src/http/routes/*               -> grouped API route handlers
+src/session/pi-session.ts       -> Pi Durable-backed session Durable Object migration target
+src/session/harness.ts          -> minimal Pi Durable harness composition
 src/http/session.ts             -> signed session lookup and authenticated route middleware
 src/http/input.ts               -> JSON/body/query helpers for route handlers
 src/durable/multiperson-chat.ts -> Durable Object lifecycle and RPC delegation

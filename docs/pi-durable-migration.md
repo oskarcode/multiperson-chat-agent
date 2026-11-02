@@ -64,7 +64,7 @@ src/protocol/schedules.ts
 ## Migration sequence
 
 1. Add Pi Durable dependencies and record the architectural rule. Done.
-2. Introduce a Pi Durable session Durable Object for one room while keeping the public HTTP API stable.
+2. Introduce a Pi Durable session Durable Object for one room while keeping the public HTTP API stable. Started with `src/session/pi-session.ts` and the `SESSIONS` Durable Object binding.
 3. Route new Agent requests through a Pi Durable `Harness` instead of `src/agent/reply.ts` direct provider calls.
 4. Port/adapt schedule/list/cancel tools from FamilyChat so schedule creation comes from tool calls, not text parsing.
 5. Project Pi Durable entries back into the existing simple UI transcript shape.
@@ -73,3 +73,7 @@ src/protocol/schedules.ts
 ## Current explicit guardrail
 
 Until schedule tools are wired in, the prompt in `src/agent/reply.ts` tells the agent not to claim that it created a schedule. This avoids false Calendar confirmations while preserving the goal of implementing proper Pi Durable-backed schedule tools next.
+
+## Current Pi Durable probe
+
+The starter now includes a `PiSession` Durable Object backed by `@earendil-works/pi-durable` and SQLite storage. Admins can call `GET /api/pi/status` to verify that the session opens and creates a Pi Durable root conversation. Public chat traffic has not been moved to this session yet; that is the next migration step.
