@@ -1,106 +1,96 @@
 export const appClientScript = String.raw`
     const $ = (id) => document.getElementById(id);
-    let state = { member: null, workspaces: [], workspaceId: null, setupConfigured: false, aiModels: [], aiSettings: null, skills: [], schedules: [] };
-    async function api(path, options = {}) { const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || 'Request failed'); return data; }
-    const show = (id) => $(id).classList.remove('hidden'); const hide = (id) => $(id).classList.add('hidden');
-    const esc = (value) => String(value).replace(/[&<>'"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
-    const inlineMarkdown = (value) => esc(value)
-      .replace(/\x60([^\x60]+)\x60/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
-    const displayMessageText = (message) => message.kind === 'agent' ? String(message.text || '').replace(/^(?:Group Agent:\s*)+/i, '').trim() : message.text;
-    function renderMarkdown(text) {
-      const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-      const html = []; let paragraph = []; let list = []; let code = [];
-      const flushParagraph = () => { if (paragraph.length) { html.push('<p>' + inlineMarkdown(paragraph.join(' ')) + '</p>'); paragraph = []; } };
-      const flushList = () => { if (list.length) { html.push('<ul>' + list.map((item) => '<li>' + inlineMarkdown(item) + '</li>').join('') + '</ul>'); list = []; } };
-      const flushCode = () => { if (code.length) { html.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>'); code = []; } };
-      for (const line of lines) {
-        if (line.trim().startsWith('\x60\x60\x60')) { if (code.length) flushCode(); else { flushParagraph(); flushList(); code = ['']; } continue; }
-        if (code.length) { code.push(line); continue; }
-        const heading = /^(#{1,3})\s+(.+)$/u.exec(line.trim());
-        if (heading) { flushParagraph(); flushList(); html.push('<h' + heading[1].length + '>' + inlineMarkdown(heading[2]) + '</h' + heading[1].length + '>'); continue; }
-        const bullet = /^[-*]\s+(.+)$/u.exec(line.trim());
-        if (bullet) { flushParagraph(); list.push(bullet[1]); continue; }
-        if (line.trim() === '') { flushParagraph(); flushList(); continue; }
-        paragraph.push(line.trim());
+    const state = { roomId: '', name: 'Guest', messages: [], progress: { active: false, partialText: '', tools: [] }, source: null };
+    const api = async (path, options = {}) => {
+      const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    };
+    const roomPath = (suffix) => '/api/rooms/' + encodeURIComponent(state.roomId) + '/' + suffix;
+    function renderMessages() {
+      const box = $('messages');
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+      box.replaceChildren();
+      if (!state.messages.length && !state.progress.partialText) {
+        const empty = document.createElement('div'); empty.className = 'empty';
+        const text = document.createElement('div'); text.innerHTML = '<strong>Welcome to this room</strong><span>Send a message to everyone, or ask the agent for help.</span>';
+        empty.append(text); box.append(empty);
       }
-      flushCode(); flushParagraph(); flushList();
-      return html.join('') || '<p></p>';
+      const messages = [...state.messages];
+      if (state.progress.partialText) messages.push({ id: 'agent-streaming', authorName: 'Group Agent', kind: 'agent', text: state.progress.partialText, streaming: true });
+      for (const message of messages) {
+        const item = document.createElement('article');
+        item.className = 'message ' + message.kind + (message.streaming ? ' streaming' : '') + (message.authorName === state.name ? ' mine' : '');
+        const name = document.createElement('div'); name.className = 'byline'; name.textContent = message.authorName;
+        const content = document.createElement('div'); content.className = 'message-text'; content.textContent = message.text;
+        item.append(name, content); box.append(item);
+      }
+      if (nearBottom) box.scrollTop = box.scrollHeight;
+      renderProgress();
     }
-    function selectTab(name) { ['Setup','Login','Join'].forEach((n) => { $('tab'+n).classList.toggle('active', n.toLowerCase() === name); $(n.toLowerCase()+'Form').classList.toggle('hidden', n.toLowerCase() !== name); }); $('authError').textContent = ''; }
-    ['Setup','Login','Join'].forEach((n) => $('tab'+n).onclick = () => selectTab(n.toLowerCase()));
-    function showAuth(me) { document.body.classList.remove('app-ready'); hide('app'); show('auth'); state.setupConfigured = me.setup?.configured === true; $('tabSetup').classList.toggle('hidden', state.setupConfigured); const invite = new URLSearchParams(location.search).get('invite'); $('joinCodeLabel').classList.toggle('hidden', Boolean(invite)); if (invite) { $('joinCode').value = invite; selectTab('join'); } else if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secret SESSION_SECRET is required.' : 'Create or sign in to your MultiPerson Chat account.'; }
-    const initials = (value) => String(value || 'F').trim().split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase() || 'F';
-    async function boot() { const me = await api('/api/me'); hide('auth'); hide('app'); if (!me.ok) { showAuth(me); return; } state.member = me.member; $('groupLabel').textContent = me.setup?.groupName || 'MultiPerson Chat'; $('pendingInvite').classList.toggle('hidden', !new URLSearchParams(location.search).get('invite')); const canAdmin = ['owner','admin'].includes(state.member.role); $('roomInviteButton').classList.toggle('hidden', !canAdmin); $('manageInvitesButton').classList.toggle('hidden', !canAdmin); $('newWorkspaceButton').classList.toggle('hidden', !canAdmin); $('newWorkspace').classList.toggle('hidden', !canAdmin); $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; $('memberAvatar').textContent = initials(state.member.name); $('memberLabel').textContent = state.member.name; $('signedInLabel').textContent = state.member.email || state.member.name; $('accountAvatar').textContent = initials(state.member.name); $('accountName').textContent = state.member.name; $('accountEmail').textContent = (state.member.email || '') + ' · ' + state.member.role; document.body.classList.add('app-ready'); show('app'); await refreshAll(); }
-    async function refreshAll() { const [workspaces, members, connectors, ai, skills] = await Promise.all([api('/api/workspaces'), api('/api/members'), api('/api/connectors'), api('/api/ai/settings'), api('/api/skills')]); state.workspaces = workspaces.workspaces; state.aiModels = ai.models; state.aiSettings = ai.settings; state.skills = skills.skills; if (!state.workspaces.some((w) => w.id === state.workspaceId)) state.workspaceId = state.workspaces[0]?.id || null; renderWorkspaces(); renderScheduleWorkspaces(); renderMembers(members.members); renderAiSettings(); renderSkills(); renderConnectors(connectors.connectors); if (state.workspaceId) await refreshMessages(); else $('messages').innerHTML = '<section class="empty-chat"><h2>Welcome!</h2><p>Accept your room invitation above, or ask your group owner for an invite link.</p></section>'; }
-    function renderMembers(members) { $('members').innerHTML = members.map((m) => '<div data-initial="' + esc(initials(m.name)) + '"><span><strong>' + esc(m.name) + '</strong><br><span class="muted">' + esc(m.email || '') + ' · ' + esc(m.role) + '</span></span></div>').join(''); }
-    function renderWorkspaces() { $('workspaces').innerHTML = ''; $('roomCount').textContent = String(state.workspaces.length); for (const workspace of state.workspaces) { const b = document.createElement('button'); b.className = 'item secondary' + (workspace.id === state.workspaceId ? ' active' : ''); b.dataset.initials = initials(workspace.title); b.textContent = workspace.title; b.onclick = async () => { $('roomInviteResult').replaceChildren(); state.workspaceId = workspace.id; renderWorkspaces(); await refreshMessages(); }; $('workspaces').append(b); } const current = state.workspaces.find((w) => w.id === state.workspaceId); $('roomTitle').textContent = current?.title || 'General room'; }
-    async function refreshMessages() { const payload = await api('/api/workspaces/' + state.workspaceId + '/messages'); const box = $('messages'); box.innerHTML = ''; if (!payload.messages.length) { box.innerHTML = '<section class="empty-chat"><span class="empty-chat-mark" aria-hidden="true">✦</span><h2>What can I help your group with?</h2><p>Ask a question, share an update, or plan something together.</p></section>'; return; } for (const m of payload.messages) { const item = document.createElement('article'); item.className = 'msg ' + m.kind + (m.authorId === state.member.id ? ' mine' : ''); item.innerHTML = '<div class="byline">' + esc(m.authorName) + '</div><div class="message-content">' + renderMarkdown(displayMessageText(m)) + '</div>'; box.append(item); } box.scrollTop = box.scrollHeight; }
-    function renderAiSettings() { const provider = state.aiSettings?.provider || 'workers-ai'; $('aiProvider').value = provider; const models = state.aiModels.filter((m) => m.provider === provider); $('aiModel').innerHTML = models.map((m) => '<option value="' + esc(m.id) + '">' + esc(m.label) + '</option>').join(''); $('aiModel').value = state.aiSettings?.model || models[0]?.id || ''; $('anthropicKey').style.display = provider === 'anthropic' ? '' : 'none'; $('anthropicKey').placeholder = state.aiSettings?.apiKeyConfigured ? 'Anthropic API key saved; enter a new one to replace' : 'Anthropic API key'; $('modelLabel').textContent = provider === 'anthropic' ? 'Claude · BYO Anthropic key' : 'Workers AI · open-weight model'; }
-    function renderScheduleWorkspaces() { $('scheduleWorkspace').innerHTML = state.workspaces.map((w) => '<option value="' + esc(w.id) + '">' + esc(w.title) + '</option>').join(''); if (state.workspaceId) $('scheduleWorkspace').value = state.workspaceId; }
-    async function refreshCalendar() { const start = new Date(); start.setHours(0,0,0,0); const end = new Date(start); end.setDate(end.getDate() + 60); const payload = await api('/api/schedules?from=' + start.getTime() + '&to=' + end.getTime()); state.schedules = payload.schedules || []; renderSchedules(); }
-    function renderSchedules() { const root = $('scheduleList'); if (!state.schedules.length) { root.innerHTML = '<p class="muted">No schedules yet.</p>'; return; } root.innerHTML = ''; for (const schedule of state.schedules) { const item = document.createElement('article'); item.className = 'schedule-item'; item.innerHTML = '<span><time>' + esc(new Date(schedule.runAt).toLocaleString()) + '</time><br><strong>' + esc(schedule.instruction) + '</strong><br><small class="muted">' + esc(schedule.workspaceTitle || 'Room') + '</small></span>'; const remove = document.createElement('button'); remove.className = 'secondary small-button'; remove.textContent = 'Remove'; remove.onclick = async () => { await api('/api/schedules/' + encodeURIComponent(schedule.id), { method:'DELETE' }); await refreshCalendar(); }; item.append(remove); root.append(item); } }
-    function setSettingsTab(name) { ['Tools','Calendar','Account'].forEach((tab) => { $('settingsTab' + tab).classList.toggle('active', tab.toLowerCase() === name); $('settingsView' + tab).classList.toggle('hidden', tab.toLowerCase() !== name); }); if (name === 'calendar') refreshCalendar().catch((e) => $('scheduleError').textContent = e.message); }
-    function renderSkills() { const root = $('skills'); root.innerHTML = ''; if (!state.skills.length) { root.innerHTML = '<p class="muted">No skills yet.</p>'; return; } for (const skill of state.skills) { const card = document.createElement('div'); card.className = 'card stack'; card.style.padding = '.75rem'; card.innerHTML = '<strong>' + esc(skill.title) + '</strong><span class="muted">' + esc(skill.slug) + ' · ' + (skill.enabled ? 'enabled' : 'disabled') + '</span><span class="muted">' + esc(skill.description) + '</span>'; const toggle = document.createElement('button'); toggle.className = 'secondary'; toggle.textContent = skill.enabled ? 'Disable' : 'Enable'; toggle.onclick = async () => { await api('/api/skills/' + skill.id + '/enabled', { method:'POST', body: JSON.stringify({ enabled: !skill.enabled }) }); await refreshAll(); }; const edit = document.createElement('button'); edit.className = 'secondary'; edit.textContent = 'Edit SKILL.md'; edit.onclick = async () => { const files = await api('/api/skills/' + skill.id + '/files'); const current = files.files.find((f) => f.path === 'SKILL.md')?.content || ''; const next = prompt('Edit SKILL.md', current); if (next !== null) { await api('/api/skills/' + skill.id + '/files', { method:'PUT', body: JSON.stringify({ path:'SKILL.md', content: next }) }); await refreshAll(); } }; const row = document.createElement('div'); row.className = 'row'; row.append(toggle, edit); card.append(row); root.append(card); } }
-    function renderConnectors(connectors) { const root = $('connectors'); root.innerHTML = ''; if (!connectors.length) { root.innerHTML = '<p class="muted">No connectors yet.</p>'; return; } for (const c of connectors) { const card = document.createElement('div'); card.className = 'card stack'; card.style.padding = '.75rem'; const tools = c.tools || []; card.innerHTML = '<strong>' + esc(c.label) + '</strong><span class="muted">' + esc(c.url) + '</span><span class="muted">Status: ' + esc(c.status) + '</span>' + (c.lastError ? '<span class="error">' + esc(c.lastError) + '</span>' : '') + (tools.length ? '<span class="muted">Tools: ' + tools.map((t) => esc(t.name)).join(', ') + '</span>' : '<span class="muted">No tools discovered yet.</span>'); const row = document.createElement('div'); row.className = 'row'; const refresh = document.createElement('button'); refresh.className = 'secondary'; refresh.textContent = 'Refresh'; refresh.onclick = async () => { await api('/api/connectors/' + c.id + '/refresh', { method: 'POST', body: '{}' }); await refreshAll(); }; row.append(refresh); if (c.authorizationUrl) { const auth = document.createElement('button'); auth.className = 'agent'; auth.textContent = 'Authorize'; auth.onclick = () => window.open(c.authorizationUrl, 'mcp-oauth', 'popup,width=560,height=720'); row.append(auth); } card.append(row); if (tools.length) { const select = document.createElement('select'); tools.forEach((t) => { const o = document.createElement('option'); o.value = t.name; o.textContent = t.title || t.name; select.append(o); }); const args = document.createElement('textarea'); args.value = '{}'; const call = document.createElement('button'); call.className = 'secondary'; call.textContent = 'Call tool'; const out = document.createElement('pre'); out.className = 'muted'; out.style.whiteSpace = 'pre-wrap'; call.onclick = async () => { out.textContent = 'Calling…'; try { const result = await api('/api/connectors/' + c.id + '/tools/' + encodeURIComponent(select.value) + '/call', { method: 'POST', body: JSON.stringify({ args: JSON.parse(args.value || '{}') }) }); out.textContent = JSON.stringify(result, null, 2); } catch (e) { out.textContent = e.message; } }; card.append(select, args, call, out); } root.append(card); } }
-    async function send(target) { const text = $('composer').value.trim(); if (!text || !state.workspaceId) return; $('chatError').textContent = ''; $('composer').value = ''; try { await api('/api/workspaces/' + state.workspaceId + '/messages', { method: 'POST', body: JSON.stringify({ text, target }) }); await refreshMessages(); } catch (e) { $('chatError').textContent = e.message; } }
-    $('setupButton').onclick = async () => { try { await api('/api/setup', { method:'POST', body: JSON.stringify({ name: $('setupName').value, email: $('setupEmail').value, password: $('setupPassword').value, groupName: $('setupGroupName').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
-    $('loginButton').onclick = async () => { try { await api('/api/login', { method:'POST', body: JSON.stringify({ email: $('loginEmail').value, password: $('loginPassword').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
-    $('joinButton').onclick = async () => { try { await api('/api/join', { method:'POST', body: JSON.stringify({ name: $('joinName').value, code: $('joinCode').value }) }); state.workspaceId = new URLSearchParams(location.search).get('workspace'); history.replaceState(null, '', location.pathname); await boot(); } catch (e) { $('authError').textContent = e.message; } };
-    async function createInviteLink() {
-      if (!state.workspaceId) throw new Error('Choose or create a room first.');
-      $('roomInviteResult').textContent = 'Creating invite…';
-      const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member', workspaceId: state.workspaceId }) });
-      let copied = false;
-      try { if (navigator.clipboard) { await navigator.clipboard.writeText(invite.url); copied = true; } } catch {}
-      $('roomInviteResult').innerHTML = '<strong>' + (copied ? 'Invite copied!' : 'Copy this invite link:') + '</strong><br><code>' + esc(invite.url) + '</code><p>Valid for 7 days, for one person and this room only. New here? Open the link and enter your name. Already signed in? Accept the invite.</p>';
+    function renderProgress() {
+      const root = $('progress');
+      root.replaceChildren();
+      if (!state.progress.active) { root.classList.add('hidden'); return; }
+      root.classList.remove('hidden');
+      const label = document.createElement('span'); label.textContent = state.progress.tools.some((tool) => tool.status === 'running') ? 'Agent is using a tool…' : 'Agent is working…';
+      root.append(label);
+      const tools = state.progress.tools.filter((tool) => tool.status !== 'done');
+      if (tools.length) {
+        const list = document.createElement('ul');
+        for (const tool of tools) { const item = document.createElement('li'); item.textContent = tool.name + (tool.output ? ': ' + tool.output.slice(-240) : ''); list.append(item); }
+        root.append(list);
+      }
     }
-    $('acceptInviteButton').onclick = async () => {
-      $('acceptInviteButton').disabled = true;
+    async function refreshMcp() {
+      $('mcpSummary').textContent = 'Checking…'; $('mcpStatus').textContent = ''; $('mcpTools').replaceChildren();
       try {
-        const joined = await api('/api/invites/accept', { method:'POST', body: JSON.stringify({ code: new URLSearchParams(location.search).get('invite') }) });
-        state.workspaceId = joined.workspaceId;
-        history.replaceState(null, '', location.pathname);
-        hide('pendingInvite');
-        await refreshAll();
-      } catch (e) { $('inviteError').textContent = e.message; }
-      finally { $('acceptInviteButton').disabled = false; }
-    };
-    $('manageInvitesButton').onclick = async () => {
+        const result = await api(roomPath('mcp'));
+        if (!result.configured) { $('mcpSummary').textContent = 'not configured'; $('mcpStatus').textContent = 'Configure MCP_URL in wrangler.jsonc, then restart the Worker.'; return; }
+        if (result.error) { $('mcpSummary').textContent = 'connection failed'; $('mcpStatus').textContent = result.error; return; }
+        $('mcpSummary').textContent = result.tools.length + ' available';
+        $('mcpStatus').textContent = result.tools.length ? 'The agent can call these tools when useful:' : 'Connected, but this server did not advertise tools.';
+        for (const tool of result.tools) { const item = document.createElement('li'); item.textContent = (tool.title || tool.name) + (tool.description ? ' — ' + tool.description : ''); $('mcpTools').append(item); }
+      } catch (error) { $('mcpSummary').textContent = 'unavailable'; $('mcpStatus').textContent = error.message; }
+    }
+    function connectRoom() {
+      const roomId = $('roomId').value.trim() || 'lobby';
+      if (!/^[A-Za-z0-9._-]{1,80}$/u.test(roomId)) { $('error').textContent = 'Use 1–80 letters, numbers, dots, underscores, or hyphens for the room ID.'; return; }
+      state.roomId = roomId; state.name = $('authorName').value.trim() || 'Guest';
+      localStorage.setItem('chat-room', roomId); localStorage.setItem('chat-name', state.name);
+      history.replaceState(null, '', '/?room=' + encodeURIComponent(roomId));
+      state.messages = []; state.progress = { active: false, partialText: '', tools: [] }; renderMessages();
+      if (state.source) state.source.close();
+      $('status').textContent = 'Connecting to room ' + roomId + '…'; $('error').textContent = '';
+      const source = new EventSource(roomPath('events')); state.source = source;
+      source.onopen = () => { $('status').textContent = 'Connected to public room “' + state.roomId + '”. Share the room ID with others.'; };
+      source.onmessage = (event) => {
+        try { const snapshot = JSON.parse(event.data); state.messages = snapshot.messages || []; state.progress = snapshot.progress || { active: false, partialText: '', tools: [] }; renderMessages(); }
+        catch (error) { $('error').textContent = 'Could not read the room update: ' + error.message; }
+      };
+      source.onerror = () => { $('status').textContent = 'Room connection interrupted; reconnecting…'; };
+      refreshMcp();
+    }
+    async function send(target) {
+      const text = $('composer').value.trim();
+      if (!text || !state.roomId) return;
+      $('error').textContent = '';
+      $('sendGroup').disabled = true; $('sendAgent').disabled = true;
       try {
-        const data = await api('/api/invites?workspaceId=' + encodeURIComponent(state.workspaceId || ''));
-        const root = $('roomInviteResult'); root.replaceChildren();
-        if (!data.invites.length) root.textContent = 'No active invites for this room.';
-        for (const invite of data.invites) {
-          const row = document.createElement('div');
-          const link = location.origin + '/?invite=' + encodeURIComponent(invite.code) + '&workspace=' + encodeURIComponent(state.workspaceId);
-          const text = document.createElement('span'); text.textContent = link + ' · Expires ' + new Date(invite.expiresAt).toLocaleDateString();
-          const revoke = document.createElement('button'); revoke.textContent = 'Revoke'; revoke.className = 'secondary small-button';
-          revoke.onclick = async () => { try { await api('/api/invites/' + encodeURIComponent(invite.code), { method:'DELETE' }); row.remove(); } catch (e) { $('chatError').textContent = e.message; } };
-          row.append(text, revoke); root.append(row);
-        }
-      } catch (e) { $('chatError').textContent = e.message; }
-    };
-    $('roomInviteButton').onclick = () => createInviteLink().catch((e) => $('chatError').textContent = e.message);
-    $('settingsButton').onclick = () => document.body.classList.add('settings-open');
-    $('settingsClose').onclick = () => document.body.classList.remove('settings-open');
-    $('settingsBackdrop').onclick = () => document.body.classList.remove('settings-open');
-    $('settingsTabTools').onclick = () => setSettingsTab('tools');
-    $('settingsTabCalendar').onclick = () => setSettingsTab('calendar');
-    $('settingsTabAccount').onclick = () => setSettingsTab('account');
-    $('refreshCalendarButton').onclick = () => refreshCalendar().catch((e) => $('scheduleError').textContent = e.message);
-    $('scheduleButton').onclick = async () => { $('scheduleError').textContent = ''; try { const runAt = new Date($('scheduleRunAt').value).getTime(); await api('/api/schedules', { method:'POST', body: JSON.stringify({ workspaceId: $('scheduleWorkspace').value, instruction: $('scheduleInstruction').value, runAt }) }); $('scheduleInstruction').value = ''; $('scheduleRunAt').value = ''; await refreshCalendar(); } catch (e) { $('scheduleError').textContent = e.message; } };
-    $('logoutButton').onclick = async () => { await api('/api/logout', { method:'POST', body:'{}' }); location.reload(); };
-    async function createRoom() { const provided = $('newWorkspace').value.trim(); const title = provided || 'New room ' + (state.workspaces.length + 1); $('chatError').textContent = ''; try { const workspace = await api('/api/workspaces', { method:'POST', body: JSON.stringify({ title }) }); state.workspaceId = workspace.id; $('roomInviteResult').replaceChildren(); $('newWorkspace').value = ''; await refreshAll(); } catch (e) { $('chatError').textContent = e.message; } }
-    $('newWorkspaceButton').onclick = () => createRoom();
-    $('newWorkspace').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); createRoom(); } });
-    $('sendGroup').onclick = () => send('group'); $('sendAgent').onclick = () => send('agent'); $('composerForm').onsubmit = (event) => { event.preventDefault(); send('agent'); };
-    $('aiProvider').onchange = () => { state.aiSettings = { ...(state.aiSettings || {}), provider: $('aiProvider').value }; renderAiSettings(); };
-    $('aiSettingsButton').onclick = async () => { $('aiSettingsResult').textContent = 'Saving…'; try { const payload = { provider: $('aiProvider').value, model: $('aiModel').value, apiKey: $('anthropicKey').value }; const result = await api('/api/ai/settings', { method:'POST', body: JSON.stringify(payload) }); state.aiSettings = result.settings; $('anthropicKey').value = ''; renderAiSettings(); $('aiSettingsResult').textContent = 'Saved model: ' + state.aiSettings.model; } catch (e) { $('aiSettingsResult').innerHTML = '<span class="error">' + esc(e.message) + '</span>'; } };
-    $('skillButton').onclick = async () => { $('skillError').textContent = ''; try { await api('/api/skills', { method:'POST', body: JSON.stringify({ title: $('skillTitle').value, description: $('skillDescription').value }) }); $('skillTitle').value = ''; $('skillDescription').value = ''; await refreshAll(); } catch (e) { $('skillError').textContent = e.message; } };
-    $('connectorButton').onclick = async () => { $('connectorError').textContent = ''; try { const c = await api('/api/connectors', { method:'POST', body: JSON.stringify({ label: $('connectorLabel').value, url: $('connectorUrl').value }) }); $('connectorLabel').value = ''; $('connectorUrl').value = ''; await refreshAll(); if (c.authorizationUrl) window.open(c.authorizationUrl, 'mcp-oauth', 'popup,width=560,height=720'); } catch (e) { $('connectorError').textContent = e.message; } };
-    window.addEventListener('message', (event) => { if (event.origin !== location.origin || event.data?.type !== 'multiperson-chat:mcp-oauth') return; refreshAll().catch((e) => $('connectorError').textContent = e.message); });
-    boot().catch((e) => $('status').textContent = e.message);
+        await api(roomPath('messages'), { method: 'POST', body: JSON.stringify({ authorName: state.name, text, target, requestId: crypto.randomUUID() }) });
+        $('composer').value = '';
+        if (target === 'agent') $('status').textContent = 'Agent request queued for room “' + state.roomId + '”.';
+      } catch (error) { $('error').textContent = error.message; }
+      finally { $('sendGroup').disabled = false; $('sendAgent').disabled = false; }
+    }
+    $('authorName').value = localStorage.getItem('chat-name') || 'Guest';
+    $('roomId').value = new URLSearchParams(location.search).get('room') || localStorage.getItem('chat-room') || 'lobby';
+    $('connectRoom').onclick = connectRoom;
+    $('roomId').addEventListener('keydown', (event) => { if (event.key === 'Enter') connectRoom(); });
+    $('authorName').addEventListener('change', () => { state.name = $('authorName').value.trim() || 'Guest'; localStorage.setItem('chat-name', state.name); });
+    $('sendGroup').onclick = () => send('group'); $('sendAgent').onclick = () => send('agent');
+    $('composerForm').onsubmit = (event) => { event.preventDefault(); send('agent'); };
+    $('refreshMcp').onclick = refreshMcp;
+    connectRoom();
 `;

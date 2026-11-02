@@ -1,80 +1,43 @@
-# Pi Durable migration notes
+# Pi Durable demo architecture
 
-This project should use Pi Durable and Pi AI as the actual agent runtime, following both the [Pi Durable on Cloudflare article](https://earendil.com/posts/pi-durable-on-cloudflare/) and the local `pi-durable-chat` reference project. The objective is to simplify the codebase without losing product behavior.
+The room's Pi Durable conversation is both its agent session and its transcript source. Every room ID maps to one `ChatRoom` Durable Object, which hosts the Harness over SQLite storage owned by that object.
 
-## Decision
+## Responsibilities
 
-Keep product-specific chat app state in this starter, and use `@earendil-works/pi-durable` and `@earendil-works/pi-ai` as the actual agent runtime. Preserve existing product behavior behind narrow adapters while migrating.
+Pi Durable and Pi AI own:
 
-## Keep custom here
+- conversation entries and agent turns;
+- Workers AI model execution and the tool loop;
+- `schedule`, `list_schedules`, `cancel_schedule`, and MCP call tools;
+- durable reminder and proactive follow-up tasks;
+- retries, task recovery, and progress snapshots;
+- the conversation watch used by the browser's SSE stream.
 
-These are product/application concerns and can remain direct code in this repository:
+The application adapter owns only the demo interface around that runtime:
 
-- first owner setup
-- guest invite links
-- member roles and room membership
-- workspace catalog
-- Hono HTTP routes
-- deployment helper
-- simple no-build starter UI
+- accept a room ID, display name, and message;
+- write normal group chat as passive Pi Durable entries;
+- project conversation entries and `pi.live` into a compact browser snapshot;
+- provide optional Worker-owner-configured MCP server details.
 
-## Prefer Pi Durable for these
+## Scheduled work
 
-Do not add new manual implementations for these areas unless they are explicitly temporary compatibility layers:
+A reminder is a Pi Durable task, not a timestamp stored in a separate app calendar. When due, the task submits an instruction to the room's root conversation. The Durable Object alarm wakes the Harness, and the resulting assistant response appears in the same transcript and live stream.
 
-- agent conversation/session runtime
-- transcript entries and durable event history
-- model/tool execution loop
-- schedule/list/cancel tools
-- durable scheduled tasks and task recovery
-- tool progress, diagnostics, and nested calls
-- background agent work
-- conversation search/inbox semantics
+## Automatic follow-up
 
-## Feature-preserving migration rule
+After a group message, the room monitor classifies whether an unresolved turn merits a later check-in. A positive result creates a durable Pi task with the current room revision. A newer group message advances that revision; stale tasks do not deliver. The task submits a follow-up input to the same Pi conversation after its delay. Real timed delivery still needs a live smoke test with Workers AI.
 
-Do not remove a feature while replacing its implementation until its Pi-native path passes behavior tests. Keep compatibility adapters narrow and temporary. In particular, a task that sleeps until its deadline and then completes without submitting work is not scheduled delivery and must not be reported as a working reminder.
+## MCP
 
-## Current overlap to migrate
+The optional Worker variable `MCP_URL` points to one public, unauthenticated Streamable HTTP server. The Harness registers `call_mcp_tool`; the tool checks the server's advertised tool list before invoking it. OAuth, user-managed connectors, and app-level connector settings are out of scope for this starter.
 
-| Current file/feature | Replacement direction |
-|---|---|
-| direct provider calls and hand-written Anthropic tool loop | Replaced for Ask Agent by Pi Durable `Harness`, Pi AI Workers AI/Anthropic providers, and registered Pi schedule tools |
-| group-message table and HTTP transcript shape | Kept as app-owned group chat product state; agent turns, tool events, and scheduled inputs/results are Pi Durable entries projected through the HTTP adapter |
-| Calendar schedules and `create_schedule` path | Pi Durable task-backed Calendar plus native `schedule`, `list_schedules`, and `cancel_schedule` tools; due tasks submit to the Pi room conversation |
-| `src/durable/features/follow-ups.ts` custom alarm loop | New classifications use Pi AI; new waiting/cancellation/delivery use Pi Durable tasks. The legacy SQL alarm remains only to transfer pending records created by older deployments. |
-| connector tool calls through direct admin API | MCP metadata, OAuth, and role checks remain app-owned; the Pi `call_connector_tool` tool invokes only cached tools and still passes through the owner/admin authorization. |
-| skill catalog and prompt context | Catalog and editing remain app-owned; enabled skill instructions are discoverable through the Pi `read_skill_file` tool. |
+## Removed from the former product implementation
 
-## Reference implementation
+The demo no longer includes app sign-in, roles, invites, private-room membership/catalog, AI provider settings, Anthropic credentials, skills, connector OAuth management, a schedule calendar, or the old global `MultiPersonChat` state owner. The Worker provides no app authentication: room IDs are public names. Users who need private access must add their own authentication and authorization.
 
-Use the local FamilyChat/Pi Durable project as the source of truth for patterns:
+The old `MultiPersonChat` and `PiSession` Durable Object namespaces are tombstoned in `wrangler.jsonc`. Deploying the new `ChatRoom` class deletes those old namespaces and their data; preservation was explicitly waived. The refactor was not remotely deployed.
 
-```text
-/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/pi-durable-chat
-```
+## Verification boundary
 
-Especially:
-
-```text
-src/chat/chat.ts
-src/chat/session-runtime.ts
-src/worker/session.ts
-src/scheduling/tools.ts
-src/scheduling/schedule.ts
-src/protocol/schedules.ts
-```
-
-## Migration sequence
-
-1. Add Pi Durable dependencies, `agents` Workers AI bridge, and architecture guardrails. Done.
-2. Route Ask Agent through a room-scoped Pi Durable `Harness`; Pi AI now selects the configured Workers AI or Anthropic provider. Done in `src/session/pi-session.ts` and `src/session/harness.ts`.
-3. Register Pi-native `schedule`, `list_schedules`, and `cancel_schedule` tools; make Pi scheduled tasks submit due instructions to their room conversation and wake via Durable Object alarms. Implemented; end-to-end live-provider delivery still needs a manual smoke test.
-4. Project Pi assistant entries and scheduled reminder inputs into the existing simple HTTP/UI transcript shape while retaining the app-owned group-message catalog. Done.
-5. Move new proactive follow-up classification to Pi AI and waiting/resolution/delivery to Pi Durable tasks. Implemented and tested; the legacy alarm path remains only to drain pre-migration rows.
-6. Expose connector calls and enabled skill-file reads as Pi tools. Implemented; connector execution still enforces the existing owner/admin rule in app code.
-7. Remove the legacy follow-up table/alarm after pending rows have been transferred and verified; keep auth, connector/OAuth persistence, and skill editing app-owned.
-
-## Current Pi Durable probe
-
-Each room's `PiSession` uses Pi Durable and Pi AI for Ask Agent turns, provider selection, model tool execution, transcript/event history, Calendar reminders, and proactive follow-ups. Native schedule tools, MCP connector calls, and enabled skill-file reads are registered in the Harness; connector and skill APIs retain app-owned authorization and persistence. Due reminders and follow-ups submit inputs to the room conversation. The app's member/room/group-message catalog remains in `CHAT`. Only pre-migration follow-up rows still use the legacy alarm as a transfer path. Code-level tests cover the Pi model loop and task delivery; a live provider-backed Ask Agent and timed-delivery smoke test was not run in this environment.
+Local tests cover Pi Durable turns, tool registration, task delivery/stale follow-up behavior, streamed partial snapshots, Worker room isolation, SSE delivery, and the browser's shared-room flow. They do not establish that a live Workers AI model, a real public MCP server, or a 30-minute live follow-up works in a deployed environment. Run those smoke tests against a disposable public demo configuration before making external-integration claims.

@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test';
 import { createRequire } from 'node:module';
-import { localOptions } from './test-onboarding.mjs';
+import { localOptions } from './test-worker.mjs';
 const require = createRequire(import.meta.url);
 const { Miniflare } = createRequire(require.resolve('wrangler/package.json'))('miniflare');
 const mf = new Miniflare(localOptions(false));
@@ -8,62 +8,61 @@ let browser;
 try {
   const base = (await mf.ready).origin;
   browser = await chromium.launch();
-  const ownerContext = await browser.newContext();
-  const guestContext = await browser.newContext();
-  const owner = await ownerContext.newPage();
-  const guest = await guestContext.newPage();
+  const aliceContext = await browser.newContext();
+  const bobContext = await browser.newContext();
+  const alice = await aliceContext.newPage();
+  const bob = await bobContext.newPage();
   const errors = [];
-  const requests = [];
-  for (const page of [owner, guest]) {
-    page.on('pageerror', error => errors.push(error.message));
-    page.on('request', request => requests.push(request.url()));
-  }
-  await owner.goto(base + '/');
-  await expect(owner.locator('#setupName')).toBeVisible();
-  await owner.locator('#setupName').fill('Parent');
-  await owner.locator('#setupEmail').fill('parent@example.com');
-  await owner.locator('#setupPassword').fill('group-password');
-  await owner.locator('#setupGroupName').fill('The test group');
-  await owner.locator('#setupButton').click();
-  await expect(owner.locator('#groupLabel')).toHaveText('The test group');
-  await expect(owner.locator('#roomTitle')).toHaveText('General room');
-  await owner.locator('#roomInviteButton').click();
-  const invite = await owner.locator('#roomInviteResult code').textContent();
-  await guest.goto(invite);
-  await expect(guest.locator('#joinName')).toBeVisible();
-  await guest.locator('#joinName').fill('Group member');
-  await expect(guest.locator('#joinEmail')).toHaveCount(0);
-  await expect(guest.locator('#joinPassword')).toHaveCount(0);
-  await guest.locator('#joinButton').click();
-  await expect(guest.locator('#roomTitle')).toHaveText('General room');
-  await expect(guest.locator('#app')).toBeVisible();
-  await expect(guest.locator('#pendingInvite')).toBeHidden();
-  await expect(guest.locator('#newWorkspaceButton')).toBeHidden();
-  await expect(guest.locator('#newWorkspace')).toBeHidden();
-  await guest.locator('#composer').fill('Dinner at six?');
-  await guest.locator('#sendGroup').click();
-  await expect(guest.locator('#messages')).toContainText('Dinner at six?');
-  await owner.locator('#newWorkspace').fill('Private room');
-  await owner.locator('#newWorkspaceButton').click();
-  await expect(owner.locator('#roomTitle')).toHaveText('Private room');
-  await guest.reload();
-  await expect(guest.locator('#workspaces')).not.toContainText('Private room');
-  await owner.locator('#roomInviteButton').click();
-  const second = await owner.locator('#roomInviteResult code').textContent();
-  // A member who already joined with a name can accept another room invite while signed in.
-  await guest.goto(second);
-  await expect(guest.locator('#pendingInvite')).toBeVisible();
-  await guest.locator('#acceptInviteButton').click();
-  await expect(guest.locator('#roomTitle')).toHaveText('Private room');
-  await expect(guest.locator('#pendingInvite')).toBeHidden();
-  await owner.locator('#roomInviteButton').click();
-  await owner.locator('#manageInvitesButton').click();
-  await expect(owner.locator('#roomInviteResult button')).toHaveCount(1);
-  await owner.locator('#roomInviteResult button').click();
-  await expect(owner.locator('#roomInviteResult button')).toHaveCount(0);
-  await guest.setViewportSize({ width: 390, height: 844 });
-  await expect(guest.locator('#composer')).toBeVisible();
-  expect(await guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  for (const page of [alice, bob]) page.on('pageerror', error => errors.push(error.message));
+
+  await alice.goto(base + '/?room=family');
+  await alice.locator('#authorName').fill('Alice');
+  await expect(alice.locator('#status')).toContainText('Connected to public room');
+  await bob.goto(base + '/?room=family');
+  await bob.locator('#authorName').fill('Bob');
+  await expect(bob.locator('#status')).toContainText('Connected to public room');
+
+  await alice.locator('#composer').fill('Hello to everyone in this room.');
+  await alice.locator('#sendGroup').click();
+  await expect(alice.locator('#messages')).toContainText('Hello to everyone in this room.');
+  await expect(bob.locator('#messages')).toContainText('Hello to everyone in this room.');
+  await bob.locator('#composer').fill('This is a shared room.');
+  await bob.locator('#sendGroup').click();
+  await expect(alice.locator('#messages')).toContainText('This is a shared room.');
+
+  await bob.locator('#roomId').fill('another-room');
+  await bob.locator('#connectRoom').click();
+  await expect(bob.locator('#messages')).not.toContainText('Hello to everyone in this room.');
+  await bob.locator('#composer').fill('Only in another room.');
+  await bob.locator('#sendGroup').click();
+  await expect(bob.locator('#messages')).toContainText('Only in another room.');
+  await expect(alice.locator('#messages')).not.toContainText('Only in another room.');
+
+  const progressPage = await browser.newPage();
+  let agentRequest;
+  const partialSnapshot = {
+    messages: [],
+    progress: { active: true, partialText: 'A streamed partial answer.', tools: [{ name: 'call_mcp_tool', status: 'running', output: 'Searching…' }] },
+  };
+  await progressPage.route('**/api/rooms/progress-room/events', route => route.fulfill({
+    status: 200, headers: { 'content-type': 'text/event-stream' }, body: `data: ${JSON.stringify(partialSnapshot)}\n\n`,
+  }));
+  await progressPage.route('**/api/rooms/progress-room/messages', async route => {
+    agentRequest = route.request().postDataJSON();
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ requestId: 'browser-agent-request' }) });
+  });
+  await progressPage.goto(base + '/?room=progress-room');
+  await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
+  await expect(progressPage.locator('#progress')).toContainText('Agent is using a tool');
+  await expect(progressPage.locator('#progress')).toContainText('call_mcp_tool');
+  await progressPage.locator('#composer').fill('Please help.');
+  await progressPage.locator('#sendAgent').click();
+  await expect.poll(() => agentRequest?.target).toBe('agent');
+
+  await bob.setViewportSize({ width: 390, height: 844 });
+  await expect(bob.locator('#composer')).toBeVisible();
+  expect(await bob.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(alice.locator('#mcpSummary')).toHaveText('not configured');
   expect(errors).toEqual([]);
-  console.log('Browser tests passed: first-run owner onboarding, invite-link name-only join, chat, existing-member invite acceptance, room privacy, revocation, mobile layout.');
+  console.log('Browser tests passed: shared rooms, isolation, live updates, Pi progress rendering, agent requests, public MCP status, and mobile layout.');
 } finally { await browser?.close(); await mf.dispose(); }

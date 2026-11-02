@@ -1,45 +1,46 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-describe("architecture guardrails", () => {
-  it("records Pi Durable as the preferred agent runtime direction", () => {
+describe("demo architecture", () => {
+  it("keeps one room-scoped Durable Object and Pi Durable as the real agent runtime", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { dependencies?: Record<string, string> };
-    expect(pkg.dependencies?.["@earendil-works/pi-durable"]).toBeTruthy();
-    expect(pkg.dependencies?.["@earendil-works/pi-ai"]).toBeTruthy();
-    expect(pkg.dependencies?.["@earendil-works/chord"]).toBeTruthy();
-    expect(pkg.dependencies?.agents).toBeTruthy();
-    expect(existsSync("src/session/pi-session.ts")).toBe(true);
+    for (const dependency of ["@earendil-works/pi-durable", "@earendil-works/pi-ai", "@earendil-works/chord", "@earendil-works/pi-mcp", "agents"]) {
+      expect(pkg.dependencies?.[dependency]).toBeTruthy();
+    }
+    expect(pkg.dependencies?.hono).toBeUndefined();
+    expect(existsSync("src/session/chat-room.ts")).toBe(true);
     expect(existsSync("src/session/harness.ts")).toBe(true);
     expect(existsSync("src/session/schedule-task.ts")).toBe(true);
-    expect(existsSync("src/session/schedule-tools.ts")).toBe(true);
     expect(existsSync("src/session/follow-up-task.ts")).toBe(true);
-    expect(existsSync("src/session/capability-tools.ts")).toBe(true);
-    expect(existsSync("src/durable/features/schedules.ts")).toBe(false);
+    expect(existsSync("src/http")).toBe(false);
+    expect(existsSync("src/auth")).toBe(false);
+    expect(existsSync("src/durable")).toBe(false);
+    expect(existsSync("src/chat-rpc.ts")).toBe(false);
+
     const task = readFileSync("src/session/schedule-task.ts", "utf8");
     expect(task).toContain("runtime.conversation");
     expect(task).toContain("conversation.submit");
-    const tools = readFileSync("src/session/schedule-tools.ts", "utf8");
-    for (const name of ["schedule", "list_schedules", "cancel_schedule"]) expect(tools).toContain(`name: "${name}"`);
-    const capabilities = readFileSync("src/session/capability-tools.ts", "utf8");
-    for (const name of ["call_connector_tool", "read_skill_file"]) expect(capabilities).toContain(`name: "${name}"`);
-    expect(capabilities).toContain('replay: "unsafe"');
-    expect(readFileSync("src/durable/features/follow-ups.ts", "utf8")).not.toContain("env.AI.run");
-    const agentContext = readFileSync("src/agent/context.ts", "utf8");
-    expect(agentContext).not.toContain("fetch(");
+    const followUp = readFileSync("src/session/follow-up-task.ts", "utf8");
+    expect(followUp).toContain("conversation.submit");
+    const harness = readFileSync("src/session/harness.ts", "utf8");
+    expect(harness).toContain('provider: "cloudflare"');
+    expect(harness).not.toContain("anthropic");
 
-    const wrangler = readFileSync("wrangler.jsonc", "utf8");
-    expect(wrangler).toContain('"name": "SESSIONS"');
-    expect(wrangler).toContain('"class_name": "PiSession"');
-
-    const agentGuide = readFileSync("AGENTS.md", "utf8");
-    expect(agentGuide).toContain("prefer Pi Durable primitives");
-    expect(agentGuide).toContain("Do not add manual replacements");
-    expect(agentGuide).toContain("https://earendil.com/posts/pi-durable-on-cloudflare/");
-    expect(agentGuide).toContain("A task that only sleeps and completes is not delivery.");
-    expect(agentGuide).toContain("Preserve feature parity during migration.");
+    const wrangler = JSON.parse(readFileSync("wrangler.jsonc", "utf8")) as {
+      durable_objects: { bindings: { name: string; class_name: string }[] };
+      exports: Record<string, { state?: string; storage?: string }>;
+    };
+    expect(wrangler.durable_objects.bindings).toEqual([{ name: "ROOMS", class_name: "ChatRoom" }]);
+    expect(wrangler.exports.ChatRoom.storage).toBe("sqlite");
+    expect(wrangler.exports.MultiPersonChat.state).toBe("deleted");
+    expect(wrangler.exports.PiSession.state).toBe("deleted");
   });
 
-  it("does not reintroduce ad-hoc schedule parsing", () => {
-    expect(existsSync("src/agent/schedule-request.ts")).toBe(false);
+  it("uses Pi's conversation watch to stream durable agent progress", () => {
+    const room = readFileSync("src/session/chat-room.ts", "utf8");
+    expect(room).toContain("root.watch(BACKGROUND_CONTEXT)");
+    expect(room).toContain("watch.start");
+    expect(readFileSync("src/index.ts", "utf8")).toContain("text/event-stream");
+    expect(readFileSync("src/session/transcript.ts", "utf8")).toContain('view.docs["pi.live"]');
   });
 });

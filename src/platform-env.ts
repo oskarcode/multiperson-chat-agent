@@ -1,8 +1,2 @@
-export interface Env {
-  readonly CHAT: DurableObjectNamespace;
-  readonly SESSIONS: DurableObjectNamespace;
-  readonly AI: Ai;
-  readonly AI_MODEL?: string;
-  readonly AI_GATEWAY_ID?: string;
-  readonly SESSION_SECRET?: string;
-}
+// Generated from wrangler.jsonc by `pnpm exec wrangler types`.
+export type Env = WorkerEnv;

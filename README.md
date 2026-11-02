@@ -1,200 +1,87 @@
 # MultiPerson Chat with Agent
 
-A small, self-hosted group chat application with a resident AI assistant. It runs as a single Cloudflare Worker backed by SQLite Durable Objects, with one app-state object and a room-scoped Pi Durable session, so it is a good starting point for teams, classrooms, clubs, support rooms, communities, or any multi-person chat where people can talk normally and explicitly ask an agent for help.
+A small, public group-chat demo for Cloudflare Workers. People who use the same room ID share a chat; each room has its own SQLite-backed Durable Object and Pi Durable conversation. Send messages to the room, ask the agent for help, watch its progress stream into the browser, and let it schedule reminders or follow-ups.
 
-This project is intentionally direct: no frontend build step, no external database, and no required identity provider. The first user creates the chat space, then admins invite others with room invite links.
+This is a learning/demo starter, not an authenticated chat product. Anyone who knows a room ID can read and post in that room. Add your own authentication and authorization layer before using it for private conversations.
 
-## What it does
+## Demo flow
 
-- Hosts a browser chat UI from a Cloudflare Worker.
-- Stores users, rooms, invites, group messages, skills, AI settings, and connector metadata in the app Durable Object; Pi Durable stores agent conversations and schedules in each room session.
-- Lets the first person create the owner account from the Worker URL.
-- Lets invited users join a room with only their display name.
-- Supports owner/admin password sign-in.
-- Lets users send normal group messages or click **Ask Agent** for an AI response.
-- Supports optional Workers AI or Anthropic model settings.
-- Includes optional MCP connectors; the agent can invoke cached connector tools only when the current actor passes the existing owner/admin authorization.
-- Supports enabled group skills through Pi's `read_skill_file` tool while keeping skill editing and storage app-owned.
-- Uses Pi Durable Harness/Pi AI for agent turns, model/tool execution, durable reminders, proactive follow-ups, and conversation history; app-owned auth, rooms, memberships, and group-message catalog remain in the product Durable Object.
+1. Open the Worker URL, choose a display name, and use a room ID such as `lobby`.
+2. Share the same room ID with other people to chat together. Choose another ID to start a separate room/session.
+3. Use **Send to group** for a normal message or **Ask Agent** to submit a question to the room's Pi Durable conversation.
+4. Watch the agent's partial answer and tool progress arrive over the live room stream.
+5. Ask the agent to schedule a reminder. Pi Durable stores the task, and the room Durable Object wakes when it is due.
+6. Optionally configure a public MCP server with `MCP_URL`; the agent can discover and call its tools.
 
-## Quick deploy with a coding agent
-
-Give your coding agent this prompt after replacing the account/Worker details with your own:
-
-```text
-Clone REPOSITORY_URL into a new folder named multiperson-chat-agent. Work only in that clone. Read AGENTS.md and wrangler.jsonc. Install dependencies, verify Wrangler login, then deploy a fresh Worker to my Cloudflare account using the repository deploy helper. Confirm the account ID/name and Worker name with me once before deploying. Use: pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes. Do not copy secrets from another project. Return the Worker URL and check result.
-```
-
-Manual equivalent:
+## Run locally
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm exec wrangler login
-pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes
+pnpm exec wrangler dev
 ```
 
-The deploy helper runs `pnpm check`, deploys with Wrangler, creates `SESSION_SECRET` if the Worker is new, preserves existing secrets on updates, and smoke-checks `/api/me`.
-
-## First-run user flow
-
-1. Open the deployed Worker URL.
-2. Enter your name, email, password, and chat space name.
-3. Click **Create chat space**. You become the owner.
-4. Create rooms or use the default **General room**.
-5. Click **Invite people** in a room and share the private invite link.
-6. Invitees open the link and enter their name. They do not need Cloudflare accounts.
-7. Everyone can send group messages. Use **Ask Agent** when you want the resident AI to respond.
+The Workers AI binding is configured in `wrangler.jsonc`. The default model is `@cf/zai-org/glm-4.7-flash`. Agent requests made during local development still call Workers AI remotely and may incur usage charges; authenticate Wrangler with an account that can use Workers AI. To test a public, unauthenticated Streamable HTTP MCP server, set `MCP_URL` in `wrangler.jsonc` to its HTTPS endpoint. The UI will show the tools advertised by that server. MCP OAuth is not included.
 
 ## How it works
 
 ```text
-Browser UI
-  -> Hono API routes in src/http/
-  -> MultiPersonChat Durable Object for app-owned identity, room access, and group messages
-  -> PiSession Durable Object per room for Pi Durable conversations, agent tools, schedules, and Pi AI model calls
-  -> SQLite Durable Object storage
-  -> Workers AI / Anthropic; MCP admin plumbing remains app-owned
+Browser
+  -> Worker routes and serves the no-build UI
+  -> ROOMS.getByName(roomId)
+  -> one ChatRoom Durable Object per room
+       -> Pi Durable Harness and one room conversation
+       -> chat entries, agent entries, live partials, reminders, follow-ups
+       -> Durable Object alarm wakes Pi Durable tasks
+       -> optional MCP client calls the configured public server
+  -> Workers AI
 ```
 
-### Main layers
+- `src/index.ts` — small Worker router for the page and room API.
+- `src/session/chat-room.ts` — room Durable Object; owns the Pi Durable Harness, room chat, MCP capability, follow-up monitor, and alarm entrypoint.
+- `src/session/harness.ts` — Workers AI provider, prompt sections, Pi tools, and task registration.
+- `src/session/transcript.ts` — projects Pi Durable entries and live generation/tool state into a browser snapshot.
+- `src/session/schedule-task.ts` and `src/session/schedule-tools.ts` — Pi Durable reminder task plus schedule/list/cancel tools.
+- `src/session/follow-up-classifier.ts` and `src/session/follow-up-task.ts` — classify open group-chat turns, schedule a follow-up, and submit it to the same conversation. A newer group message makes older candidates stale.
+- `src/session/capability-tools.ts` and `src/integrations/mcp.ts` — agent tool for the configured MCP server and its Streamable HTTP client.
+- `src/ui/` — plain HTML, CSS, and browser JavaScript; no frontend build step.
+- `worker-configuration.d.ts` — Wrangler-generated binding types.
 
-- `src/index.ts` — tiny Worker entrypoint that exports the Durable Object and delegates HTTP to Hono.
-- `src/http/app.ts` — Hono app composition root that mounts the API route groups.
-- `src/http/routes/` — small route files grouped by feature: public auth, rooms/messages, invites, AI settings, skills, schedules, connectors, and MCP callback.
-- `src/http/session.ts` and `src/http/input.ts` — session middleware plus JSON/body helpers for route handlers.
-- `src/ui/app-html.ts` — assembles the no-build browser page from small UI strings.
-- `src/ui/page.ts` — browser HTML body markup.
-- `src/ui/styles.ts` — browser CSS.
-- `src/ui/client-script.ts` — browser state, fetch calls, rendering, and event handlers.
-- `src/durable/multiperson-chat.ts` — current app catalog Durable Object lifecycle and public RPC delegation.
-- `src/session/pi-session.ts` — Pi Durable-backed per-room agent session; handles Pi conversations, model selection, and transcript projection.
-- `src/session/harness.ts` — Pi AI provider and Pi Durable tool/task/prompt composition.
-- `src/session/schedule-task.ts` and `src/session/schedule-tools.ts` — durable reminder delivery plus model-callable schedule/list/cancel tools.
-- `src/durable/features/` — app-owned product features: members, invites, workspaces, group messages, connectors, AI settings, skills, and legacy proactive follow-ups.
-- `src/durable/schema.ts` — SQLite schema.
-- `src/durable/rows.ts` — SQLite row-to-protocol mappers.
-- `src/durable/validation.ts` — shared text limits, validation, and AI response helpers.
-- `src/chat-rpc.ts` — Durable Object RPC shape used by the Worker.
-- `src/protocol/chat.ts` — shared product types.
-- `src/auth/crypto.ts` and `src/auth/session.ts` — PBKDF2 password hashing and signed session cookies.
-- `src/agent/` — model catalog and app-specific room prompt context; model/tool execution is handled by Pi Durable/Pi AI.
-- `src/integrations/mcp.ts` — MCP Streamable HTTP/OAuth adapter.
-- `scripts/deploy-agent.mjs` — safe deployment helper for agents and humans.
+### Streaming
 
-## API overview
+The room Durable Object watches the Pi Durable conversation and returns SSE snapshots. Each snapshot contains the visible transcript and current Pi `pi.live` state. The browser renders partial assistant text and tool activity; a reconnect starts from the current snapshot.
 
-Public/setup routes:
+### Scheduling and automatic follow-up
 
-- `GET /api/me` — returns session/setup state.
-- `POST /api/setup` — creates the first owner and chat space.
-- `POST /api/login` — signs in owner/admin users.
-- `POST /api/join` — joins with an invite code and display name.
-- `POST /api/logout` — clears the session cookie.
-- `GET /api/mcp/callback` — handles MCP OAuth popup callbacks.
+The `schedule`, `list_schedules`, and `cancel_schedule` Pi tools create and manage Pi Durable tasks. A due reminder submits a new input to the room conversation; it is not a separate reply loop. The follow-up monitor observes group messages, classifies whether an open turn needs a later check-in, and schedules a Pi Durable task. New messages invalidate stale candidates. Durable Object alarms wake the room to run due tasks.
 
-Authenticated routes:
+## API
 
-- `GET /api/members`
-- `GET /api/workspaces`
-- `POST /api/workspaces`
-- `GET /api/workspaces/:id/messages`
-- `POST /api/workspaces/:id/messages`
-- `GET /api/invites`
-- `POST /api/invites`
-- `POST /api/invites/accept`
-- `DELETE /api/invites/:code`
-- `GET /api/ai/settings`
-- `POST /api/ai/settings`
-- `GET /api/skills`
-- `POST /api/skills`
-- `GET /api/skills/:id/files`
-- `PUT /api/skills/:id/files`
-- `PUT /api/skills/:id/enabled`
-- `GET /api/schedules`
-- `POST /api/schedules`
-- `DELETE /api/schedules/:id`
-- `GET /api/connectors`
-- `POST /api/connectors`
-- `POST /api/connectors/:id/refresh`
-- `POST /api/connectors/:id/tools/:name/call`
+- `GET /api/rooms/:roomId/messages` — current projected transcript.
+- `GET /api/rooms/:roomId/events` — SSE transcript and agent progress stream.
+- `POST /api/rooms/:roomId/messages` — send a group message or queue an agent request (`target: "agent"`).
+- `GET /api/rooms/:roomId/mcp` — discover tools from the configured MCP endpoint.
 
-## Infrastructure
-
-Cloudflare resources used:
-
-- Worker runtime for HTTP routes and browser UI.
-- Durable Object binding `CHAT` with SQLite storage for current app catalog/chat state.
-- Durable Object binding `SESSIONS` with SQLite storage; each room’s Pi Durable session owns the agent conversation and scheduled work.
-- Workers AI binding `AI` for the default model path.
-- Worker secret `SESSION_SECRET` for session cookies.
-- Optional environment vars `AI_MODEL` and `AI_GATEWAY_ID`.
-- Optional outbound HTTPS calls to Anthropic or MCP servers when configured.
-
-No separate database, queue, CDN asset build, or external identity provider is required for the base app.
-
-## Development
+## Checks
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test
 pnpm check
+node scripts/test-browser.mjs
 ```
 
-Optional browser test:
+`pnpm check` verifies generated types, TypeScript, unit tests, Wrangler packaging, room behavior, and the deploy helper. The browser test covers shared rooms, room isolation, live updates, and the mobile layout. Mocked tests do not prove that a real Workers AI model or public MCP server is reachable; test those integrations separately before relying on them.
+
+## Deploy
+
+After approving the account and Worker name, use:
 
 ```sh
-pnpm exec playwright install chromium
-pnpm test:browser
+pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes
 ```
 
-## What to expand next
+The helper verifies the selected Wrangler account, runs `pnpm check`, deploys, and checks the chat page. It does not create an application secret because this demo has no sign-in flow.
 
-Good extension points:
+**Storage note:** `wrangler.jsonc` retires the old `MultiPersonChat` and `PiSession` classes and declares the new `ChatRoom` class. Deploying this configuration permanently deletes the old Durable Object namespaces and their data. This is intentional for this demo refactor; do not reuse the old classes' data.
 
-- More room/member administration: remove members, rename rooms, archive rooms.
-- Stronger invite controls: max uses, invite labels, email allowlists, expiry UI.
-- Better notifications: email, push, unread counters, mentions.
-- Richer agent tool use: safe automatic tool routing, more MCP servers, tool result previews.
-- Finish migrating custom proactive follow-up behavior and expose existing connector/skill capabilities as Pi tools where their current access rules allow; preserve the app-owned group chat and identity features.
-- File attachments: R2-backed uploads with explicit size/type scanning.
-- Multi-tenant SaaS: one Durable Object per organization or account.
-- Search/export: transcript search, data export, retention controls.
-- Observability: structured logs, metrics, admin diagnostics.
+## Production boundary
 
-Things this starter deliberately does not try to be:
-
-- A full Slack/Discord clone.
-- A complete enterprise IAM product.
-- A production compliance package.
-- A general plugin framework.
-- A multi-tenant billing system.
-
-## Security notes
-
-This starter has basic application security, not comprehensive production hardening.
-
-Included:
-
-- Owner/admin password sign-in.
-- PBKDF2 password hashing.
-- Signed HTTP-only session cookies.
-- One-use room invite links.
-- Durable Object membership checks before private room reads/writes.
-- Secrets kept out of source and managed through Wrangler/Cloudflare.
-
-You should review or add before production use:
-
-- Password reset/account recovery.
-- Member removal and session revocation.
-- Rate limiting for login, setup, joins, and agent calls.
-- CSRF strategy if you add cross-site flows.
-- Stronger authorization policies for tools/connectors.
-- Audit logs for admin actions.
-- Data deletion/export/retention policies.
-- Abuse controls for public invite links.
-- A formal threat model for your use case.
-
-## License
-
-No license file is included yet. Add a license before publishing for reuse.
+This demo has no app authentication, memberships, private rooms, rate limiting, or full abuse controls. Room IDs are public names, not access tokens. `MCP_URL` is set by the Worker owner rather than entered by anonymous visitors, and the starter expects a public HTTPS MCP endpoint. Do not use the deployed demo for private or sensitive conversations without adding your own identity, authorization, and abuse-control layer.

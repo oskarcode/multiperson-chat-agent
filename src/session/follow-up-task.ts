@@ -2,30 +2,26 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, defineTask, type ConversationId } from "@earendil-works/pi-durable";
 
 export type ProactiveFollowUpInput = {
-  readonly workspaceId: string;
   readonly conversationId: ConversationId;
   readonly triggerRevision: number;
-  readonly authorId: string;
   readonly authorName: string;
   readonly message: string;
   readonly recentConversation: string;
   readonly dueAt: number;
-  readonly requestKey?: string;
 };
 
 type FollowUpTaskState = { phase: "wait" } | { phase: "deliver"; attempt: number } | { phase: "retry"; attempt: number; retryAt: number };
-type FollowUpTaskOutcome = null;
 
-/** Pi Durable session cursor used to resolve stale follow-ups before delivery. */
+/** New room messages advance this cursor so old follow-up tasks become stale. */
 export const FollowUpCursor = defineDoc<{ revision: number }>({
-  kind: "app.proactive-follow-up-cursor",
+  kind: "app.follow-up-cursor",
   version: 1,
   scope: "session",
   initial: () => ({ revision: 0 }),
 });
 
-/** Waits durably, then delivers the proactive nudge through the room conversation. */
-export const DeliverProactiveFollowUp = defineTask<ProactiveFollowUpInput, FollowUpTaskState, FollowUpTaskOutcome>({
+/** Waits durably, then asks the same Pi conversation to send one useful check-in. */
+export const DeliverProactiveFollowUp = defineTask<ProactiveFollowUpInput, FollowUpTaskState, null>({
   name: "app.deliver-proactive-follow-up",
   version: 1,
   initial: () => ({ phase: "wait" }),
@@ -50,19 +46,23 @@ export const DeliverProactiveFollowUp = defineTask<ProactiveFollowUpInput, Follo
         return;
       }
       const conversation = await runtime.conversation(task.input.conversationId, context);
-      if (conversation === undefined) throw new Error(`Follow-up conversation ${task.input.conversationId} no longer exists`);
+      if (!conversation) throw new Error(`Conversation ${task.input.conversationId} no longer exists`);
       try {
         const submission = await conversation.submit({
           type: "input",
-          requestId: `${task.input.requestKey ?? `follow-up:${task.input.workspaceId}:${task.input.triggerRevision}`}:attempt-${task.state.checkpoint.attempt}`,
+          requestId: `follow-up:${task.input.triggerRevision}:attempt-${task.state.checkpoint.attempt}`,
           whenBusy: "followUp",
           content: [
             "[Group Agent proactive follow-up]",
-            `The latest unresolved turn from ${task.input.authorName} has not received a visible response for 30 minutes: ${JSON.stringify(task.input.message)}.`,
-            "Write one useful, concise follow-up. Ask for the missing answer, check whether help is still needed, or suggest the simplest next decision. Do not mention automation or timers.",
+            `The latest unresolved turn from ${task.input.authorName} has been waiting for 30 minutes: ${JSON.stringify(task.input.message)}.`,
+            "Write one concise, useful check-in. Do not mention automation or timers.",
             "Recent room conversation:",
             task.input.recentConversation,
           ].join("\n\n"),
+          entry: {
+            kind: "chat.follow-up",
+            data: { authorName: "Group Agent follow-up", text: `Checking back on: ${task.input.message}`, createdAt: Date.now() },
+          },
         }, context);
         const settled = await submission.wait(context);
         if (settled.status !== "done") throw new Error(`Pi follow-up turn ended ${settled.status}`);
