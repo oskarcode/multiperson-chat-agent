@@ -4,7 +4,7 @@ This file tells coding agents how to deploy this repository safely and how to pr
 
 ## Architecture requirement: prefer Pi Durable primitives
 
-This starter is intended to converge on the Pi Durable runtime used by the current FamilyChat/Pi Durable project. Before adding custom agent, scheduling, tool, transcript, background-task, or recovery behavior, check whether `@earendil-works/pi-durable`, `@earendil-works/pi-ai`, or the existing `pi-durable-chat` implementation already provides the primitive.
+This starter is intended to use Pi Durable and Pi AI as its actual agent runtime, following both the Pi Durable on Cloudflare article and the current `pi-durable-chat` reference implementation. Before adding custom agent, scheduling, tool, transcript, background-task, or recovery behavior, check whether `@earendil-works/pi-durable`, `@earendil-works/pi-ai`, or the references already provide the primitive.
 
 Do not add manual replacements for features that should be backed by Pi Durable, especially:
 
@@ -15,13 +15,22 @@ Do not add manual replacements for features that should be backed by Pi Durable,
 - custom schedule execution/retry logic
 - custom tool diagnostics/progress systems
 
-Preferred direction:
+Non-negotiable goal:
 
-- Keep app-specific product state here: members, invites, roles, workspace catalog, deployment helper, and public onboarding.
-- Move agent runtime behavior toward Pi Durable: sessions/conversations, entries, tools, tasks, schedule/list/cancel tools, tool events, diagnostics, and recovery.
-- If a temporary compatibility layer is unavoidable, document it as temporary and avoid expanding it.
+- Pi Durable/Pi AI must own the real agent runtime: model execution, tool loop, conversations/transcript/event history, durable background work, scheduled delivery, retries/recovery, and diagnostics wherever the libraries provide those capabilities.
+- Keep app-specific product features: member authentication, invites, roles, private room/workspace catalog and access rules, onboarding, connectors/skills, Calendar UI, and existing chat behavior.
+- Preserve feature parity during migration. Keep old and new implementations side by side only as a temporary compatibility bridge with an explicit removal condition; do not expand the legacy path.
+- Do not describe a Pi task as a working reminder unless it actually submits the scheduled instruction to the Pi conversation and its execution is observable. A task that only sleeps and completes is not delivery.
+- Before removing any legacy behavior, map its current feature/security behavior to the Pi-native replacement and add compatibility tests. After parity passes, delete the replaced custom implementation rather than maintaining two runtimes.
+- Report the migration state accurately. Passing typecheck/deploy smoke tests does not prove model tool calls, scheduled delivery, or end-to-end feature parity.
 
-Reference project for the intended pattern:
+Primary architecture article:
+
+```text
+https://earendil.com/posts/pi-durable-on-cloudflare/
+```
+
+Reference project for the concrete implementation pattern:
 
 ```text
 /Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/pi-durable-chat

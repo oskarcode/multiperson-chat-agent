@@ -19,6 +19,9 @@ describe("architecture guardrails", () => {
     const agentGuide = readFileSync("AGENTS.md", "utf8");
     expect(agentGuide).toContain("prefer Pi Durable primitives");
     expect(agentGuide).toContain("Do not add manual replacements");
+    expect(agentGuide).toContain("https://earendil.com/posts/pi-durable-on-cloudflare/");
+    expect(agentGuide).toContain("A task that only sleeps and completes is not delivery.");
+    expect(agentGuide).toContain("Preserve feature parity during migration.");
   });
 
   it("does not reintroduce ad-hoc schedule parsing", () => {
