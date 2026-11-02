@@ -7,7 +7,7 @@ import { getAiRuntimeSettings as readAiRuntimeSettings, getAiSettings as readAiS
 import { addConnector as addStoredConnector, callConnectorTool as callStoredConnectorTool, completeConnectorOAuth as completeStoredConnectorOAuth, listConnectors as listStoredConnectorsForMember, refreshConnector as refreshStoredConnector } from "./features/connectors";
 import { acceptInvite as acceptRoomInvite, createInvite as createRoomInvite, joinWithInvite as joinRoomWithInvite, listInvites as listRoomInvites, revokeInvite as revokeRoomInvite } from "./features/invites";
 import { getMember as readMember, listMembers as readMembers, loginAppMember as loginMember, setupAppOwner as createInitialOwner, setupStatus as readSetupStatus } from "./features/members";
-import { appendAgentMessage as appendStoredAgentMessage, appendGroupMessage as appendStoredGroupMessage, insertMessage, listMessages as listStoredMessages, recentTranscript as readRecentTranscript, recentWorkspaceMessages } from "./features/messages";
+import { appendGroupMessage as appendStoredGroupMessage, insertMessage, listMessages as listStoredMessages, recentTranscript as readRecentTranscript, recentWorkspaceMessages } from "./features/messages";
 import { createSkill as createStoredSkill, listSkillFiles as listStoredSkillFiles, listSkills as listStoredSkills, setSkillEnabled as setStoredSkillEnabled, updateSkillFile as updateStoredSkillFile } from "./features/skills";
 import { deliverDueFollowUps, recoverInterruptedFollowUps, refreshFollowUpAlarm, trackFollowUp } from "./features/follow-ups";
 import { createWorkspace as createStoredWorkspace, insertWorkspace, listAllWorkspaces, listWorkspaces as listMemberWorkspaces, requireWorkspaceMember as requireStoredWorkspaceMember } from "./features/workspaces";
@@ -100,10 +100,6 @@ export class MultiPersonChat extends DurableObject<Env> {
 
   async appendGroupMessage(input: { actorId: string; workspaceId: string; text: string; kind: "group" | "agent-request" }): Promise<ChatMessage> {
     return appendStoredGroupMessage(this.featureContext(), input);
-  }
-
-  async appendAgentMessage(input: { workspaceId: string; text: string }): Promise<ChatMessage> {
-    return appendStoredAgentMessage(this.featureContext(), input);
   }
 
   // MCP connectors

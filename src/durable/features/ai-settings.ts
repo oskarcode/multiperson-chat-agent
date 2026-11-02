@@ -1,6 +1,7 @@
 // AI settings persistence. Safe browser responses never include stored API keys;
 // runtime responses are only used server-side when the agent needs to call a provider.
 import type { DurableFeatureContext } from "../feature-context";
+import { AI_MODELS, DEFAULT_ANTHROPIC_MODEL, DEFAULT_WORKERS_AI_MODEL } from "../../agent/models";
 import type { AiProvider, AiRuntimeSettings, AiSettings } from "../../protocol/chat";
 import { now, safeText } from "../validation";
 
@@ -13,8 +14,8 @@ export async function getAiSettings(ctx: DurableFeatureContext, memberId: string
   return { ...safe, apiKeyConfigured: Boolean(runtime.apiKey) };
 }
 
-// Server-facing read: includes the API key so src/agent/reply.ts can call the
-// configured provider. Do not return this value directly to the browser.
+// Server-facing read includes the API key so the Pi Durable session can pass it to pi-ai.
+// Do not return this value directly to the browser.
 export async function getAiRuntimeSettings(ctx: DurableFeatureContext, memberId: string): Promise<AiRuntimeSettings | null> {
   await ctx.requireMember(memberId);
   const row = ctx.state.storage.sql
@@ -22,14 +23,19 @@ export async function getAiRuntimeSettings(ctx: DurableFeatureContext, memberId:
     .toArray()[0];
   if (row === undefined) return null;
   const parsed = JSON.parse(row.value) as AiRuntimeSettings;
-  return { ...parsed, updatedAt: row.updated_at, apiKeyConfigured: Boolean(parsed.apiKey) };
+  const model = AI_MODELS.some((choice) => choice.provider === parsed.provider && choice.id === parsed.model)
+    ? parsed.model
+    : parsed.provider === "workers-ai" ? DEFAULT_WORKERS_AI_MODEL : DEFAULT_ANTHROPIC_MODEL;
+  return { ...parsed, model, updatedAt: row.updated_at, apiKeyConfigured: Boolean(parsed.apiKey) };
 }
 
 export async function updateAiSettings(ctx: DurableFeatureContext, input: { actorId: string; provider: AiProvider; model: string; apiKey?: string | null }): Promise<AiSettings> {
   const actor = await ctx.requireMember(input.actorId);
   if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can update AI settings");
   const provider = input.provider === "anthropic" ? "anthropic" : "workers-ai";
-  const model = safeText(input.model, "Model", 120);
+  const requestedModel = safeText(input.model, "Model", 120);
+  const model = AI_MODELS.find((choice) => choice.provider === provider && choice.id === requestedModel)?.id
+    ?? (provider === "workers-ai" ? DEFAULT_WORKERS_AI_MODEL : DEFAULT_ANTHROPIC_MODEL);
   const previous = await getAiRuntimeSettings(ctx, input.actorId);
   const apiKey = input.apiKey && input.apiKey.trim().length > 0 ? input.apiKey.trim() : previous?.apiKey;
   const runtime: AiRuntimeSettings = provider === "anthropic"

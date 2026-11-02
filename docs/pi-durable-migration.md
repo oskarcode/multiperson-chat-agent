@@ -4,7 +4,7 @@ This project should use Pi Durable and Pi AI as the actual agent runtime, follow
 
 ## Decision
 
-Keep product-specific chat app state in this starter, but move agent/conversation/tool/task features toward `@earendil-works/pi-durable` and `@earendil-works/pi-ai`.
+Keep product-specific chat app state in this starter, and use `@earendil-works/pi-durable` and `@earendil-works/pi-ai` as the actual agent runtime. Preserve existing product behavior behind narrow adapters while migrating.
 
 ## Keep custom here
 
@@ -39,12 +39,12 @@ Do not remove a feature while replacing its implementation until its Pi-native p
 
 | Current file/feature | Replacement direction |
 |---|---|
-| `src/agent/reply.ts` direct provider calls and hand-written Anthropic tool loop | Pi Durable `Harness` with `pi-ai` provider and registered Pi tools; not migrated |
-| `src/durable/features/messages.ts` message table | Pi Durable entries/conversations, projected through an adapter to preserve the current API/UI; not migrated |
-| Pi Durable task-backed Calendar routes and `create_schedule` Anthropic tool | Pi Durable task storage exists, but scheduled tasks currently only wait and complete; they do not deliver. Replace the custom Anthropic tool loop with registered Pi tools and make task delivery submit to the Pi conversation |
-| `src/durable/features/follow-ups.ts` custom alarm loop | Pi Durable tasks plus app follow-up policy; not migrated |
-| connector tool calls through direct admin API | registered Pi Durable tools with tool diagnostics/progress; not migrated |
-| skill prompt text table | Pi Durable prompt sections/tools, keeping app-specific skill catalog as needed; not migrated |
+| direct provider calls and hand-written Anthropic tool loop | Replaced for Ask Agent by Pi Durable `Harness`, Pi AI Workers AI/Anthropic providers, and registered Pi schedule tools |
+| group-message table and HTTP transcript shape | Kept as app-owned group chat product state; agent turns, tool events, and scheduled inputs/results are Pi Durable entries projected through the HTTP adapter |
+| Calendar schedules and `create_schedule` path | Pi Durable task-backed Calendar plus native `schedule`, `list_schedules`, and `cancel_schedule` tools; due tasks submit to the Pi room conversation |
+| `src/durable/features/follow-ups.ts` custom alarm loop | Still custom; migrate its durable work to Pi tasks while preserving its current classification/resolution behavior |
+| connector tool calls through direct admin API | Still app-owned settings/admin operations; expose selected connector tools through Pi only after preserving existing authorization and OAuth behavior |
+| skill catalog and prompt context | Catalog remains app-owned; prompt context is now delivered to Pi sections. Skill execution tools remain future work |
 
 ## Reference implementation
 
@@ -67,13 +67,14 @@ src/protocol/schedules.ts
 
 ## Migration sequence
 
-1. Add Pi Durable dependencies and record the architectural rule. Done.
-2. Introduce a Pi Durable session Durable Object for one room while keeping the public HTTP API stable. Started with `src/session/pi-session.ts` and the `SESSIONS` Durable Object binding.
-3. Route new Agent requests through a Pi Durable `Harness` instead of `src/agent/reply.ts` direct provider calls.
-4. Port/adapt remaining schedule list/cancel tools from FamilyChat. Claude schedule creation already comes from a tool call, not text parsing.
-5. Project Pi Durable entries back into the existing simple UI transcript shape.
-6. Replace or remove the custom message/follow-up stores once compatibility tests pass.
+1. Add Pi Durable dependencies, `agents` Workers AI bridge, and architecture guardrails. Done.
+2. Route Ask Agent through a room-scoped Pi Durable `Harness`; Pi AI now selects the configured Workers AI or Anthropic provider. Done in `src/session/pi-session.ts` and `src/session/harness.ts`.
+3. Register Pi-native `schedule`, `list_schedules`, and `cancel_schedule` tools; make Pi scheduled tasks submit due instructions to their room conversation and wake via Durable Object alarms. Implemented; end-to-end live-provider delivery still needs a manual smoke test.
+4. Project Pi assistant entries and scheduled reminder inputs into the existing simple HTTP/UI transcript shape while retaining the app-owned group-message catalog. Done.
+5. Migrate proactive follow-ups to Pi tasks without changing their classification, resolution, or retry behavior. Not done.
+6. Expose existing app-managed connector and skill capabilities as Pi tools with their current authorization rules. Not done.
+7. Remove the remaining custom agent-runtime/follow-up code only after behavior and migration tests demonstrate parity.
 
 ## Current Pi Durable probe
 
-The starter includes a `PiSession` Durable Object backed by `@earendil-works/pi-durable` and SQLite storage. Settings → Calendar creates/lists/cancels Pi Durable tasks in a room-scoped session, and the direct Anthropic API path can call `create_schedule`. However, those tasks currently wait until their deadline and then complete without submitting a reminder or starting agent work. Public chat transcripts and agent generation still use the legacy `CHAT` / direct-provider path. Therefore end-to-end Pi-native agent turns and scheduled delivery are not complete yet.
+Each room's `PiSession` uses Pi Durable and Pi AI for Ask Agent turns, provider selection, model tool execution, transcript/event history, and schedule tasks. Calendar and the native `schedule`, `list_schedules`, and `cancel_schedule` tools share those tasks. At the deadline, a task submits its instruction into that room's Pi conversation; the HTTP adapter projects Pi assistant replies and scheduled inputs into the current transcript API. The app's member/room/group-message catalog remains in `CHAT`. Proactive follow-ups, connector tool exposure, and skill execution still need migration. Code-level tests pass, but a live provider-backed Ask Agent and timed-delivery smoke test was not run in this environment.

@@ -1,10 +1,30 @@
 import { Hono } from "hono";
-import { generateAgentReply } from "../../agent/reply";
+import { buildAgentPromptContext } from "../../agent/context";
+import { defaultAiModel } from "../../agent/models";
+import type { ChatMessage } from "../../protocol/chat";
 import { isAdmin, type AppBindings } from "../context";
 import { optionalTextField, requestJson, textField } from "../input";
 import { requireAuth } from "../session";
 
 export const workspaceRoutes = new Hono<AppBindings>();
+
+type PiSessionRpc = {
+  listAgentMessages(input: { workspaceId: string }): Promise<ChatMessage[]>;
+  runAgent(input: {
+    actorId: string;
+    actorName: string;
+    workspaceId: string;
+    workspaceTitle: string;
+    promptContext: string;
+    requestId: string;
+    userMessage: string;
+    provider: "workers-ai" | "anthropic";
+    model: string;
+    apiKey?: string;
+  }): Promise<ChatMessage>;
+};
+
+const session = (c: { env: AppBindings["Bindings"] }, workspaceId: string): PiSessionRpc => c.env.SESSIONS.getByName(workspaceId) as unknown as PiSessionRpc;
 
 workspaceRoutes.use("*", requireAuth);
 
@@ -22,7 +42,10 @@ workspaceRoutes.post("/", async (c) => {
 
 workspaceRoutes.get("/:workspaceId/messages", async (c) => {
   const { member, chat } = c.var.auth;
-  return c.json({ messages: await chat.listMessages({ actorId: member.id, workspaceId: c.req.param("workspaceId") }) });
+  const workspaceId = c.req.param("workspaceId");
+  const stored = await chat.listMessages({ actorId: member.id, workspaceId });
+  const agentMessages = await session(c, workspaceId).listAgentMessages({ workspaceId });
+  return c.json({ messages: [...stored, ...agentMessages].sort((left, right) => left.createdAt - right.createdAt || left.id - right.id) });
 });
 
 workspaceRoutes.post("/:workspaceId/messages", async (c) => {
@@ -36,10 +59,25 @@ workspaceRoutes.post("/:workspaceId/messages", async (c) => {
     text: textField(body, "text"),
     kind: target === "agent" ? "agent-request" : "group",
   });
-  const messages = [message];
+  const messages: ChatMessage[] = [message];
   if (target === "agent") {
-    const reply = await generateAgentReply(c.env, chat, member.id, workspaceId);
-    messages.push(await chat.appendAgentMessage({ workspaceId, text: reply }));
+    const workspace = (await chat.listWorkspaces(member.id)).find((item) => item.id === workspaceId);
+    if (workspace === undefined) return c.json({ error: "Room not found" }, 404);
+    const settings = await chat.getAiRuntimeSettings(member.id);
+    const promptContext = await buildAgentPromptContext(c.env, chat, member.id, workspaceId);
+    const reply = await session(c, workspaceId).runAgent({
+      actorId: member.id,
+      actorName: member.name,
+      workspaceId,
+      workspaceTitle: workspace.title,
+      promptContext,
+      requestId: `agent-request:${message.id}`,
+      userMessage: message.text,
+      provider: settings?.provider ?? "workers-ai",
+      model: settings?.model ?? defaultAiModel(c.env),
+      ...(settings?.apiKey === undefined ? {} : { apiKey: settings.apiKey }),
+    });
+    messages.push(reply);
   }
   return c.json({ messages }, 201);
 });

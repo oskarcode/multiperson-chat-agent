@@ -1,20 +1,20 @@
 # MultiPerson Chat with Agent
 
-A small, self-hosted group chat application with a resident AI assistant. It runs as a single Cloudflare Worker with one SQLite-backed Durable Object, so it is a good starting point for teams, classrooms, clubs, support rooms, communities, or any multi-person chat where people can talk normally and explicitly ask an agent for help.
+A small, self-hosted group chat application with a resident AI assistant. It runs as a single Cloudflare Worker backed by SQLite Durable Objects, with one app-state object and a room-scoped Pi Durable session, so it is a good starting point for teams, classrooms, clubs, support rooms, communities, or any multi-person chat where people can talk normally and explicitly ask an agent for help.
 
 This project is intentionally direct: no frontend build step, no external database, and no required identity provider. The first user creates the chat space, then admins invite others with room invite links.
 
 ## What it does
 
 - Hosts a browser chat UI from a Cloudflare Worker.
-- Stores users, rooms, invites, messages, skills, schedules, AI settings, and connector metadata in Durable Object SQLite.
+- Stores users, rooms, invites, group messages, skills, AI settings, and connector metadata in the app Durable Object; Pi Durable stores agent conversations and schedules in each room session.
 - Lets the first person create the owner account from the Worker URL.
 - Lets invited users join a room with only their display name.
 - Supports owner/admin password sign-in.
 - Lets users send normal group messages or click **Ask Agent** for an AI response.
 - Supports optional Workers AI or Anthropic model settings.
 - Includes optional MCP connector plumbing for owner/admin tools.
-- Includes simple schedules, skills, and proactive follow-up examples as extension points while the agent runtime migrates toward Pi Durable primitives.
+- Uses Pi Durable Harness/Pi AI for agent turns, model tool execution, durable reminders, and conversation history; app-owned auth, rooms, memberships, and group-message catalog remain in the product Durable Object.
 
 ## Quick deploy with a coding agent
 
@@ -49,9 +49,10 @@ The deploy helper runs `pnpm check`, deploys with Wrangler, creates `SESSION_SEC
 ```text
 Browser UI
   -> Hono API routes in src/http/
-  -> MultiPersonChat Durable Object in src/durable/multiperson-chat.ts
+  -> MultiPersonChat Durable Object for app-owned identity, room access, and group messages
+  -> PiSession Durable Object per room for Pi Durable conversations, agent tools, schedules, and Pi AI model calls
   -> SQLite Durable Object storage
-  -> optional Workers AI / Anthropic / MCP services
+  -> Workers AI / Anthropic; MCP admin plumbing remains app-owned
 ```
 
 ### Main layers
@@ -65,16 +66,17 @@ Browser UI
 - `src/ui/styles.ts` — browser CSS.
 - `src/ui/client-script.ts` — browser state, fetch calls, rendering, and event handlers.
 - `src/durable/multiperson-chat.ts` — current app catalog Durable Object lifecycle and public RPC delegation.
-- `src/session/pi-session.ts` — Pi Durable-backed per-room session Durable Object used as the migration target for conversations/tools/tasks.
-- `src/session/schedule-task.ts` — Pi Durable task-backed Calendar records while model-callable schedule tools are migrated.
-- `src/durable/features/` — focused state features: members, invites, workspaces, messages, connectors, AI settings, schedules, skills, and follow-ups.
+- `src/session/pi-session.ts` — Pi Durable-backed per-room agent session; handles Pi conversations, model selection, and transcript projection.
+- `src/session/harness.ts` — Pi AI provider and Pi Durable tool/task/prompt composition.
+- `src/session/schedule-task.ts` and `src/session/schedule-tools.ts` — durable reminder delivery plus model-callable schedule/list/cancel tools.
+- `src/durable/features/` — app-owned product features: members, invites, workspaces, group messages, connectors, AI settings, skills, and legacy proactive follow-ups.
 - `src/durable/schema.ts` — SQLite schema.
 - `src/durable/rows.ts` — SQLite row-to-protocol mappers.
 - `src/durable/validation.ts` — shared text limits, validation, and AI response helpers.
 - `src/chat-rpc.ts` — Durable Object RPC shape used by the Worker.
 - `src/protocol/chat.ts` — shared product types.
 - `src/auth/crypto.ts` and `src/auth/session.ts` — PBKDF2 password hashing and signed session cookies.
-- `src/agent/` — model catalog and current Ask Agent prompt/provider calls; see `docs/pi-durable-migration.md` for the planned move to Pi Durable harness/tools.
+- `src/agent/` — model catalog and app-specific room prompt context; model/tool execution is handled by Pi Durable/Pi AI.
 - `src/integrations/mcp.ts` — MCP Streamable HTTP/OAuth adapter.
 - `scripts/deploy-agent.mjs` — safe deployment helper for agents and humans.
 
@@ -121,7 +123,7 @@ Cloudflare resources used:
 
 - Worker runtime for HTTP routes and browser UI.
 - Durable Object binding `CHAT` with SQLite storage for current app catalog/chat state.
-- Durable Object binding `SESSIONS` with SQLite storage for the Pi Durable migration target.
+- Durable Object binding `SESSIONS` with SQLite storage; each room’s Pi Durable session owns the agent conversation and scheduled work.
 - Workers AI binding `AI` for the default model path.
 - Worker secret `SESSION_SECRET` for session cookies.
 - Optional environment vars `AI_MODEL` and `AI_GATEWAY_ID`.
@@ -153,7 +155,7 @@ Good extension points:
 - Stronger invite controls: max uses, invite labels, email allowlists, expiry UI.
 - Better notifications: email, push, unread counters, mentions.
 - Richer agent tool use: safe automatic tool routing, more MCP servers, tool result previews.
-- Pi Durable runtime migration: replace the current direct model call path with Pi Durable sessions, tools, task-backed schedules, diagnostics, and event projection.
+- Finish migrating custom proactive follow-up behavior and expose existing connector/skill capabilities as Pi tools where their current access rules allow; preserve the app-owned group chat and identity features.
 - File attachments: R2-backed uploads with explicit size/type scanning.
 - Multi-tenant SaaS: one Durable Object per organization or account.
 - Search/export: transcript search, data export, retention controls.

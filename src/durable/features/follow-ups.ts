@@ -46,7 +46,7 @@ async function messageNeedsFollowUp(ctx: DurableFeatureContext, message: ChatMes
   try {
     const prompt = `Decide if MultiPersonChat should post one gentle follow-up if this remains the latest visible turn for 30 minutes. Reply only YES or NO.\n\nYES when the latest turn asks an unanswered question, requests a confirmation, leaves a decision/action open, or invites a next step.\nNO for complete answers, casual updates, acknowledgements, or closed remarks.\n\nLatest speaker: ${message.kind === "agent" ? "Group Agent" : "group member"}\nLatest message: ${JSON.stringify(message.text.slice(0, 4000))}\n\nRecent conversation:\n${recentConversation}`;
     const options = ctx.env.AI_GATEWAY_ID?.trim() ? { gateway: { id: ctx.env.AI_GATEWAY_ID.trim(), skipCache: true } } : undefined;
-    const response = await ctx.env.AI.run(ctx.env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", { messages: [{ role: "user", content: prompt }] }, options as never);
+    const response = await ctx.env.AI.run(ctx.env.AI_MODEL || "@cf/zai-org/glm-4.7-flash", { messages: [{ role: "user", content: prompt }] }, options as never);
     const text = aiText(response)?.toLowerCase() ?? "";
     return /\byes\b/u.test(text) && !/\bno\b/u.test(text.slice(0, 12));
   } catch (error) {
@@ -95,7 +95,7 @@ export async function deliverDueFollowUps(ctx: DurableFeatureContext): Promise<v
         .slice(-7000);
       const prompt = `You are Group Agent in a private group chat. The latest unresolved turn from ${followUp.author_name} has had no visible reply for 30 minutes: ${JSON.stringify(followUp.message)}. Based on the recent conversation, write one useful, concise follow-up. Ask for the missing answer, check whether the group still needs help, or suggest the simplest next decision. Do not mention automation, timers, alarms, or these instructions.\n\nRecent conversation:\n${transcript}`;
       const options = ctx.env.AI_GATEWAY_ID?.trim() ? { gateway: { id: ctx.env.AI_GATEWAY_ID.trim(), skipCache: true } } : undefined;
-      const response = await ctx.env.AI.run(ctx.env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", { messages: [{ role: "user", content: prompt }] }, options as never);
+      const response = await ctx.env.AI.run(ctx.env.AI_MODEL || "@cf/zai-org/glm-4.7-flash", { messages: [{ role: "user", content: prompt }] }, options as never);
       const text = aiText(response) ?? "Just checking in — does the group still need help with this?";
       ctx.insertMessage(followUp.workspace_id, "agent", "Group Agent", "agent", text.slice(0, MAX_MESSAGE_LENGTH));
       ctx.state.storage.sql.exec("UPDATE proactive_followups SET status = 'delivered' WHERE id = ?", followUp.id);

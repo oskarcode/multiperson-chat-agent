@@ -46,7 +46,6 @@ export interface MultiPersonChatRpc {
     text: string;
     kind: "group" | "agent-request";
   }): Promise<ChatMessage>;
-  appendAgentMessage(input: { workspaceId: string; text: string }): Promise<ChatMessage>;
   recentTranscript(input: { actorId: string; workspaceId: string; limit: number }): Promise<ChatMessage[]>;
   listConnectors(memberId: string): Promise<Connector[]>;
   addConnector(input: { actorId: string; label: string; url: string; publicOrigin: string }): Promise<Connector>;

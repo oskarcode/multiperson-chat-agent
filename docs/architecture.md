@@ -8,10 +8,10 @@ MultiPerson Chat with Agent is a single Cloudflare Worker with SQLite-backed Dur
 Browser
   -> Worker static HTML/CSS/JS (`src/ui/app-html.ts`, assembled from `src/ui/page.ts`, `src/ui/styles.ts`, and `src/ui/client-script.ts`)
   -> Hono JSON API routes (`src/http/`)
-  -> MultiPersonChat Durable Object (`src/durable/multiperson-chat.ts`)
-  -> PiSession Durable Object migration target (`src/session/pi-session.ts`)
+  -> MultiPersonChat Durable Object for identity, room permissions, and group-message catalog
+  -> room-scoped PiSession Durable Object (`src/session/pi-session.ts`) for Pi Durable conversations, tools, scheduled work, and Pi AI calls
   -> SQLite Durable Object storage
-  -> optional Workers AI / Anthropic / MCP services
+  -> Workers AI / Anthropic; MCP admin plumbing remains app-owned
 ```
 
 ## State owner
@@ -36,7 +36,7 @@ The Durable Object binding and exported class name are deployment state:
 - class/export: `MultiPersonChat`
 - storage: SQLite Durable Object storage
 
-A second Durable Object binding, `SESSIONS`, points at `PiSession`. Calendar schedules now run through Pi Durable tasks in a room-scoped `PiSession`; public chat transcript traffic still uses the `CHAT` object until the rest of the migration is complete.
+A second Durable Object binding, `SESSIONS`, points at a room-scoped `PiSession`. Ask Agent requests are submitted to a Pi Durable conversation using Pi AI providers and Pi-registered tools. Scheduled tasks wake the session and submit their reminder to that conversation. The HTTP transcript adapter combines app-owned group messages from `CHAT` with agent and scheduled entries from Pi Durable.
 
 ## Security boundaries
 
@@ -81,9 +81,12 @@ src/ui/client-script.ts         -> browser state, fetch callers, rendering, and 
 src/index.ts                    -> Worker entrypoint and Durable Object export
 src/http/app.ts                 -> Hono route mounting and page fallback
 src/http/routes/*               -> grouped API route handlers
-src/session/pi-session.ts       -> Pi Durable-backed room session Durable Object
-src/session/harness.ts          -> minimal Pi Durable harness composition
-src/session/schedule-task.ts    -> Pi Durable task definition for calendar reminders
+src/session/pi-session.ts       -> Pi Durable room session, agent calls, task alarms, and transcript projection
+src/session/harness.ts          -> Pi AI providers, Pi Durable tools/tasks, and prompt sections
+src/session/schedule-task.ts    -> Pi Durable reminder task with conversation delivery
+src/session/schedule-tools.ts   -> Pi-native schedule/list/cancel tools
+src/session/credentials.ts     -> ephemeral Pi AI credentials for app-owned Anthropic keys
+src/session/room-context.ts     -> durable prompt context for one room
 src/http/session.ts             -> signed session lookup and authenticated route middleware
 src/http/input.ts               -> JSON/body/query helpers for route handlers
 src/durable/multiperson-chat.ts -> Durable Object lifecycle and RPC delegation
@@ -93,7 +96,7 @@ src/durable/rows.ts             -> SQLite row-to-protocol mappers
 src/durable/validation.ts       -> shared deterministic helpers
 src/integrations/mcp.ts         -> pi-mcp client/OAuth adapter
 src/agent/models.ts             -> model catalog and default model policy
-src/agent/reply.ts              -> Ask Agent prompt construction and provider calls
+src/agent/context.ts            -> app-specific room context for the Pi Durable prompt
 src/auth/session.ts             -> signed HTTP-only session cookie helpers
 src/auth/crypto.ts              -> password/session crypto helpers
 src/protocol/chat.ts            -> runtime-neutral product protocol types
@@ -108,8 +111,9 @@ Browser UI must not import Worker or Durable Object implementation modules. Prot
 The resident agent is intentionally simple:
 
 - normal group messages are stored without model calls
-- `Ask Agent` calls the configured model with recent room transcript and settings context
-- proactive follow-up logic can record and deliver follow-up messages from the Durable Object alarm path
+- `Ask Agent` submits to the room's Pi Durable conversation; Pi AI selects Workers AI or Anthropic and Pi Durable executes registered tools
+- scheduled reminders are Pi Durable tasks that submit the due instruction to that same conversation
+- proactive follow-up logic remains app-owned in the Durable Object alarm path and is a remaining migration item
 - MCP connectors are available as owner/admin tools in settings, not as an automatic unrestricted tool loop
 
 ## Deployment

@@ -1,20 +1,38 @@
+import { createAI } from "agents/models/pi-ai";
+import { configure, createRegistry, defineExtension, section, type HarnessOptions, type ToolRegistration } from "@earendil-works/pi-durable";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { configure, createRegistry, defineExtension, section, type HarnessOptions } from "@earendil-works/pi-durable";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import type { CredentialStore } from "@earendil-works/pi-ai";
+import type { Env } from "../platform-env";
+import { DEFAULT_WORKERS_AI_MODEL } from "../agent/models";
+import { createScheduleTools, type ScheduleToolOperations } from "./schedule-tools";
+import { RoomPromptContext } from "./room-context";
 import { DeliverScheduledInstruction } from "./schedule-task";
 
-export const STARTER_AGENT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+export const STARTER_AGENT_MODEL = DEFAULT_WORKERS_AI_MODEL;
 
-// Minimal Pi Durable harness configuration. The current HTTP API still serves the
-// legacy transcript while we migrate one responsibility at a time; this file is
-// the new composition point for Pi Durable sections, tools, and tasks.
-export function createStarterHarnessOptions(): HarnessOptions {
-  const models = createModels();
+// Compose Pi AI providers and Pi Durable tools/tasks for one room session.
+export function createStarterHarnessOptions(
+  env: Env,
+  credentials: CredentialStore,
+  scheduleOperations: ScheduleToolOperations,
+): HarnessOptions {
+  const models = createModels({ credentials });
+  if (env.AI !== undefined) {
+    const ai = createAI({ binding: env.AI, id: env.AI_GATEWAY_ID });
+    models.setProvider(ai.provider);
+  }
+  models.setProvider(anthropicProvider());
+
+  const tools: ToolRegistration[] = createScheduleTools(scheduleOperations);
   const chatExtension = defineExtension({
     name: "multiperson-chat",
     tasks: [DeliverScheduledInstruction],
+    tools,
     sections: [
-      section("preamble", () => "You are Group Agent, a warm resident AI participant in a private group chat.", { tag: false }),
-      section("clock", () => `Current time: ${new Date().toISOString().slice(0, 16)}Z.`, { tag: false }),
+      section("preamble", () => "You are Group Agent, a warm, practical AI participant in a private group chat. Answer directly, be concise, and do not claim an action succeeded unless its Pi tool returned success.", { tag: false }),
+      section("clock", () => `Current time: ${new Date().toISOString()}.`, { tag: false }),
+      section("room-context", async (input, context) => (await input.read.snapshot(RoomPromptContext, context))?.text || undefined, { tag: false }),
     ],
   });
   const registry = createRegistry();
@@ -30,9 +48,13 @@ export function createStarterHarnessOptions(): HarnessOptions {
     conversationCreated: (tx, conversation) =>
       conversation.owner === undefined && conversation.parent === undefined
         ? configure(tx, conversation.id, {
-            model: { provider: "cloudflare", modelId: STARTER_AGENT_MODEL },
+            model: env.AI === undefined
+              ? { provider: "anthropic", modelId: "claude-sonnet-4-5-20250929" }
+              : { provider: "cloudflare", modelId: env.AI_MODEL?.trim() || STARTER_AGENT_MODEL },
             thinkingLevel: "off",
+            tools,
           })
         : undefined,
+    onReport: (error) => console.error(JSON.stringify({ message: "Pi Durable agent task failed", error: error instanceof Error ? error.message : String(error) })),
   };
 }

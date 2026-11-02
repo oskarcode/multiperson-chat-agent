@@ -7,10 +7,19 @@ describe("architecture guardrails", () => {
     expect(pkg.dependencies?.["@earendil-works/pi-durable"]).toBeTruthy();
     expect(pkg.dependencies?.["@earendil-works/pi-ai"]).toBeTruthy();
     expect(pkg.dependencies?.["@earendil-works/chord"]).toBeTruthy();
+    expect(pkg.dependencies?.agents).toBeTruthy();
     expect(existsSync("src/session/pi-session.ts")).toBe(true);
     expect(existsSync("src/session/harness.ts")).toBe(true);
     expect(existsSync("src/session/schedule-task.ts")).toBe(true);
+    expect(existsSync("src/session/schedule-tools.ts")).toBe(true);
     expect(existsSync("src/durable/features/schedules.ts")).toBe(false);
+    const task = readFileSync("src/session/schedule-task.ts", "utf8");
+    expect(task).toContain("runtime.conversation");
+    expect(task).toContain("conversation.submit");
+    const tools = readFileSync("src/session/schedule-tools.ts", "utf8");
+    for (const name of ["schedule", "list_schedules", "cancel_schedule"]) expect(tools).toContain(`name: "${name}"`);
+    const agentContext = readFileSync("src/agent/context.ts", "utf8");
+    expect(agentContext).not.toContain("fetch(");
 
     const wrangler = readFileSync("wrangler.jsonc", "utf8");
     expect(wrangler).toContain('"name": "SESSIONS"');

@@ -1,27 +1,46 @@
-import { defineTask, type TaskInspection } from "@earendil-works/pi-durable";
+import { defineTask, type ConversationId, type TaskInspection } from "@earendil-works/pi-durable";
 
 export type PiScheduledInstruction = {
   readonly workspaceId: string;
   readonly workspaceTitle?: string;
+  readonly conversationId: ConversationId;
   readonly instruction: string;
   readonly runAt: number;
   readonly createdBy: string;
   readonly createdAt: number;
 };
 
-type ScheduleTaskState = { phase: "wait" };
+type ScheduleTaskState = { phase: "wait" } | { phase: "deliver" };
 
-// Minimal Pi Durable-backed schedule task. It keeps the schedule as a live task
-// until runAt, so the Calendar can list active work from Harness inspection.
-// Delivery into the conversation will be added when chat traffic moves onto the
-// Pi Durable session; this avoids a second custom scheduler in the meantime.
+/** Pi Durable owns the wait, recovery, conversation submission, and task outcome. */
 export const DeliverScheduledInstruction = defineTask<PiScheduledInstruction, ScheduleTaskState, null>({
   name: "app.deliver-scheduled-instruction",
-  version: 1,
+  version: 2,
   initial: () => ({ phase: "wait" }),
+  migrate: (input, _checkpoint, _fromVersion) => ({
+    input: {
+      ...(input as PiScheduledInstruction),
+      conversationId: ((input as Partial<PiScheduledInstruction>).conversationId ?? 1) as ConversationId,
+    },
+    checkpoint: { phase: "wait" },
+  }),
   phases: {
     wait: async (task, runtime, context) => {
       await runtime.sleep(task.input.runAt, context);
+      await runtime.commit(() => ({ status: "running", checkpoint: { phase: "deliver" } }), context);
+    },
+    deliver: async (task, runtime, context) => {
+      const conversation = await runtime.conversation(task.input.conversationId as ConversationId, context);
+      if (conversation === undefined) {
+        throw new Error(`Scheduled conversation ${task.input.conversationId} no longer exists`);
+      }
+      const submission = await conversation.submit({
+        type: "input",
+        content: `Scheduled reminder: ${task.input.instruction}`,
+        requestId: `scheduled:${runtime.taskId}`,
+        whenBusy: "followUp",
+      }, context);
+      await submission.wait(context);
       await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
     },
   },
@@ -30,11 +49,13 @@ export const DeliverScheduledInstruction = defineTask<PiScheduledInstruction, Sc
   },
 });
 
+/** Convert live Pi Durable task inspection records to the Calendar API shape. */
 export const scheduleFromTask = (task: TaskInspection) => {
-  if (task.record.kind !== DeliverScheduledInstruction.definition.name) return null;
+  if (task.record.kind !== DeliverScheduledInstruction.definition.name || task.state.kind === "blocked") return null;
   const input = task.record.input as Partial<PiScheduledInstruction>;
   if (
     typeof input.workspaceId !== "string" ||
+    typeof input.conversationId !== "number" ||
     typeof input.instruction !== "string" ||
     typeof input.runAt !== "number" ||
     typeof input.createdBy !== "string" ||

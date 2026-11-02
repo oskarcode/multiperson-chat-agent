@@ -9,7 +9,7 @@ export const scheduleRoutes = new Hono<AppBindings>();
 type PiSessionRpc = {
   listSchedules(input: { workspaceId: string; workspaceTitle?: string; from?: number; to?: number }): Promise<Schedule[]>;
   createSchedule(input: { actorId: string; workspaceId: string; workspaceTitle?: string; instruction: string; runAt: number }): Promise<Schedule>;
-  deleteSchedule(input: { scheduleId: string }): Promise<boolean>;
+  deleteSchedule(input: { scheduleId: string; workspaceId?: string }): Promise<boolean>;
 };
 
 const session = (c: { env: AppBindings["Bindings"] }, workspaceId: string): PiSessionRpc => c.env.SESSIONS.getByName(workspaceId) as unknown as PiSessionRpc;
@@ -44,7 +44,7 @@ scheduleRoutes.delete("/:scheduleId", async (c) => {
   if (!isAdmin(c.var.auth.member)) return c.json({ error: "Only owners and admins can remove schedules" }, 403);
   const workspaces = await c.var.auth.chat.listWorkspaces(c.var.auth.member.id);
   for (const workspace of workspaces) {
-    if (await session(c, workspace.id).deleteSchedule({ scheduleId: c.req.param("scheduleId") })) return c.json({ deleted: true });
+    if (await session(c, workspace.id).deleteSchedule({ scheduleId: c.req.param("scheduleId"), workspaceId: workspace.id })) return c.json({ deleted: true });
   }
   return c.json({ deleted: false });
 });
