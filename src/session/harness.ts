@@ -1,5 +1,6 @@
 import { createModels } from "@earendil-works/pi-ai/models";
 import { configure, createRegistry, defineExtension, section, type HarnessOptions } from "@earendil-works/pi-durable";
+import { DeliverScheduledInstruction } from "./schedule-task";
 
 export const STARTER_AGENT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
 
@@ -10,6 +11,7 @@ export function createStarterHarnessOptions(): HarnessOptions {
   const models = createModels();
   const chatExtension = defineExtension({
     name: "multiperson-chat",
+    tasks: [DeliverScheduledInstruction],
     sections: [
       section("preamble", () => "You are Group Agent, a warm resident AI participant in a private group chat.", { tag: false }),
       section("clock", () => `Current time: ${new Date().toISOString().slice(0, 16)}Z.`, { tag: false }),

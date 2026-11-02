@@ -63,6 +63,11 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       assert.equal(rooms.length, 1); assert.equal(rooms[0].title, 'General room');
       const groupRoom = rooms[0].id;
       const privateRoom = (await request(mf, '/api/workspaces', { title: 'Private planning' }, ownerCookie)).data.id;
+      const runAt = Date.now() + 10 * 60 * 1000;
+      const schedule = await request(mf, '/api/schedules', { workspaceId: groupRoom, instruction: 'Take out trash', runAt }, ownerCookie);
+      assert.equal(schedule.status, 201);
+      assert.equal(schedule.data.instruction, 'Take out trash');
+      assert.equal((await request(mf, '/api/schedules', null, ownerCookie)).data.schedules.length, 1);
       const invite = async room => (await request(mf, '/api/invites', { workspaceId: room }, ownerCookie)).data;
       const firstInvite = await invite(groupRoom);
       const joins = await Promise.all(['a', 'b'].map(n => request(mf, '/api/join', { code: firstInvite.code, name: n })));
@@ -80,10 +85,13 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       assert.equal(accepted.status, 200); assert.equal(accepted.data.workspaceId, privateRoom);
       assert.equal((await request(mf, '/api/invites/accept', { code: secondInvite.code }, guest.cookie)).status, 400);
       assert.equal((await request(mf, '/api/me', null, guest.cookie)).data.member.role, 'member');
+      assert.equal((await request(mf, '/api/schedules', null, guest.cookie)).data.schedules.length, 1);
+      assert.equal((await request(mf, `/api/schedules/${schedule.data.id}`, null, guest.cookie, 'DELETE')).status, 403);
       assert.equal((await request(mf, '/api/pi/status', null, guest.cookie)).status, 403);
       const revoked = await invite(groupRoom);
       assert.equal((await request(mf, `/api/invites/${revoked.code}`, null, guest.cookie, 'DELETE')).status, 400);
       assert.equal((await request(mf, `/api/invites/${revoked.code}`, null, ownerCookie, 'DELETE')).status, 200);
+      assert.equal((await request(mf, `/api/schedules/${schedule.data.id}`, null, ownerCookie, 'DELETE')).status, 200);
       assert.equal((await request(mf, '/api/invites/accept', { code: revoked.code }, guest.cookie)).status, 400);
       const ns = await mf.getDurableObjectNamespace('CHAT');
       const stub = ns.get(ns.idFromName('default-group'));

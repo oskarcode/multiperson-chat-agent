@@ -37,7 +37,7 @@ Do not add new manual implementations for these areas unless they are explicitly
 |---|---|
 | `src/agent/reply.ts` direct model calls | Pi Durable `Harness` with `pi-ai` provider |
 | `src/durable/features/messages.ts` message table | Pi Durable entries/conversations |
-| `src/durable/features/schedules.ts` schedule table | Pi Durable task-backed schedule tools patterned after FamilyChat |
+| `src/durable/features/schedules.ts` schedule table | Started replacement with Pi Durable task-backed Calendar routes in `src/session/schedule-task.ts`; next step is model-callable schedule/list/cancel tools patterned after FamilyChat |
 | `src/durable/features/follow-ups.ts` custom alarm loop | Pi Durable tasks plus app follow-up policy |
 | connector tool calls through direct admin API | registered Pi Durable tools with tool diagnostics/progress |
 | skill prompt text table | Pi Durable prompt sections/tools, keeping app-specific skill catalog as needed |
@@ -66,7 +66,7 @@ src/protocol/schedules.ts
 1. Add Pi Durable dependencies and record the architectural rule. Done.
 2. Introduce a Pi Durable session Durable Object for one room while keeping the public HTTP API stable. Started with `src/session/pi-session.ts` and the `SESSIONS` Durable Object binding.
 3. Route new Agent requests through a Pi Durable `Harness` instead of `src/agent/reply.ts` direct provider calls.
-4. Port/adapt schedule/list/cancel tools from FamilyChat so schedule creation comes from tool calls, not text parsing.
+4. Port/adapt schedule/list/cancel tools from FamilyChat so schedule creation comes from tool calls, not text parsing. Calendar CRUD now uses Pi Durable tasks as a stepping stone.
 5. Project Pi Durable entries back into the existing simple UI transcript shape.
 6. Replace or remove the custom schedule/message/follow-up stores once compatibility tests pass.
 
@@ -76,4 +76,4 @@ Until schedule tools are wired in, the prompt in `src/agent/reply.ts` tells the 
 
 ## Current Pi Durable probe
 
-The starter now includes a `PiSession` Durable Object backed by `@earendil-works/pi-durable` and SQLite storage. Admins can call `GET /api/pi/status` to verify that the session opens and creates a Pi Durable root conversation. Public chat traffic has not been moved to this session yet; that is the next migration step.
+The starter now includes a `PiSession` Durable Object backed by `@earendil-works/pi-durable` and SQLite storage. Admins can call `GET /api/pi/status` to verify that the session opens and creates a Pi Durable root conversation. Settings → Calendar creates/list/deletes Pi Durable scheduled tasks through `PiSession`; public chat traffic and model-issued schedule tools have not been moved to this session yet.
