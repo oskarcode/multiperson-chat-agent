@@ -65,8 +65,8 @@ Browser UI
 - `src/ui/styles.ts` — browser CSS.
 - `src/ui/client-script.ts` — browser state, fetch calls, rendering, and event handlers.
 - `src/durable/multiperson-chat.ts` — current app catalog Durable Object lifecycle and public RPC delegation.
-- `src/session/pi-session.ts` — first Pi Durable-backed session Durable Object used as the migration target for conversations/tools/tasks.
-- `src/session/schedule-task.ts` — Pi Durable task-backed Calendar records while schedule tools are migrated.
+- `src/session/pi-session.ts` — Pi Durable-backed per-room session Durable Object used as the migration target for conversations/tools/tasks.
+- `src/session/schedule-task.ts` — Pi Durable task-backed Calendar records while model-callable schedule tools are migrated.
 - `src/durable/features/` — focused state features: members, invites, workspaces, messages, connectors, AI settings, schedules, skills, and follow-ups.
 - `src/durable/schema.ts` — SQLite schema.
 - `src/durable/rows.ts` — SQLite row-to-protocol mappers.

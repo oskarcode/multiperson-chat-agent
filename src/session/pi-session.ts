@@ -38,16 +38,15 @@ export class PiSession extends DurableObject<Env> {
     };
   }
 
-  async listSchedules(input: { workspaces: readonly { id: string; title?: string }[]; from?: number; to?: number }): Promise<Schedule[]> {
-    const workspaceTitles = new Map(input.workspaces.map((workspace) => [workspace.id, workspace.title]));
+  async listSchedules(input: { workspaceId: string; workspaceTitle?: string; from?: number; to?: number }): Promise<Schedule[]> {
     const from = Number.isFinite(input.from) ? input.from as number : 0;
     const to = Number.isFinite(input.to) ? input.to as number : Number.MAX_SAFE_INTEGER;
     const inspection = await (await this.#ready).inspect(BACKGROUND_CONTEXT);
     return inspection.tasks
       .map(scheduleFromTask)
       .filter((schedule): schedule is Schedule => schedule !== null)
-      .filter((schedule) => workspaceTitles.has(schedule.workspaceId) && schedule.runAt >= from && schedule.runAt <= to)
-      .map((schedule) => ({ ...schedule, workspaceTitle: schedule.workspaceTitle ?? workspaceTitles.get(schedule.workspaceId) }))
+      .filter((schedule) => schedule.workspaceId === input.workspaceId && schedule.runAt >= from && schedule.runAt <= to)
+      .map((schedule) => ({ ...schedule, workspaceTitle: schedule.workspaceTitle ?? input.workspaceTitle }))
       .sort((left, right) => left.runAt - right.runAt);
   }
 
@@ -69,8 +68,14 @@ export class PiSession extends DurableObject<Env> {
   }
 
   async deleteSchedule(input: { scheduleId: string }): Promise<boolean> {
-    const result = await (await this.#ready).abortTask(input.scheduleId as unknown as TaskId, BACKGROUND_CONTEXT);
-    return result === "marked";
+    const scheduleId = Number(input.scheduleId);
+    if (!Number.isSafeInteger(scheduleId)) return false;
+    try {
+      const result = await (await this.#ready).abortTask(scheduleId as TaskId, BACKGROUND_CONTEXT);
+      return result === "marked";
+    } catch {
+      return false;
+    }
   }
 
   async alarm(): Promise<void> {

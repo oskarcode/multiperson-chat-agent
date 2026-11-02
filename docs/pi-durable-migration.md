@@ -76,4 +76,4 @@ Until schedule tools are wired in, the prompt in `src/agent/reply.ts` tells the 
 
 ## Current Pi Durable probe
 
-The starter now includes a `PiSession` Durable Object backed by `@earendil-works/pi-durable` and SQLite storage. Admins can call `GET /api/pi/status` to verify that the session opens and creates a Pi Durable root conversation. Settings → Calendar creates/list/deletes Pi Durable scheduled tasks through `PiSession`; public chat traffic and model-issued schedule tools have not been moved to this session yet.
+The starter now includes a `PiSession` Durable Object backed by `@earendil-works/pi-durable` and SQLite storage. Admins can call `GET /api/pi/status` to verify that the session opens and creates a Pi Durable root conversation. Settings → Calendar creates/list/deletes Pi Durable scheduled tasks through one `PiSession` per room/workspace; public chat traffic and model-issued schedule tools have not been moved to this session yet.
