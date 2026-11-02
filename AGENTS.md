@@ -7,6 +7,7 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 - One Worker serves the no-build guest UI, admin UI, and APIs.
 - Admin operations require the Worker secret `ADMIN_SECRET`; guests do not authenticate. A guest share URL is a bearer link that grants read/write access to that workspace.
 - `DemoAdmin` is a singleton Durable Object for the workspace index and one globally shared MCP endpoint. Do not put chat transcripts or Pi sessions in it.
+- Guests join from `/w/<id>` share links; show only their editable display name in the guest UI, never an editable workspace-ID field or the ID in chat status.
 - Each created workspace ID maps to one SQLite-backed `ChatRoom` Durable Object. That object owns workspace metadata, the room transcript, and its independent Pi Durable Harness/conversation.
 - Group messages, Ask Agent requests, assistant replies, reminders, and progress are stored/projected from Pi Durable. Do not add a second transcript store.
 - Pi Durable/Pi AI owns model turns, tool execution, durable reminder/follow-up tasks, recovery, and authoritative conversation history. Workers AI is the only model provider.
@@ -19,6 +20,7 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 - Prefer direct Worker routing for the small API surface and typed Durable Object RPC; do not reintroduce Hono or duplicate RPC interfaces.
 - Keep one obvious state owner per domain: `DemoAdmin` for the small global workspace/MCP index, `ChatRoom` for each workspace's application state and Pi Durable session.
 - Use Pi Durable primitives for agent, task, transcript, and progress behavior. Do not implement a custom agent loop or custom event-diff protocol.
+- Follow-up review should examine recent conversation context for unresolved requests, questions, decisions, and blockers. Use the 15-minute quiet-period debounce; new group messages and completed agent replies must invalidate/review stale candidates.
 - Validate workspace IDs and MCP URLs. Admin endpoints must fail closed without `ADMIN_SECRET`; never put it in Wrangler `vars`, logs, URLs, or browser localStorage.
 - Keep admin secret values only in ignored `.dev.vars` locally and Wrangler secrets remotely. Never print or commit them.
 - Update `README.md` and `docs/architecture.md` with architecture behavior in the same change.

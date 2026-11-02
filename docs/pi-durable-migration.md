@@ -1,43 +1,27 @@
-# Pi Durable demo architecture
+# Pi Durable workspace behavior
 
-The room's Pi Durable conversation is both its agent session and its transcript source. Every room ID maps to one `ChatRoom` Durable Object, which hosts the Harness over SQLite storage owned by that object.
+Each shareable workspace maps to one `ChatRoom` Durable Object. That object owns the workspace's Pi Durable Harness, root conversation, metadata, transcript, scheduled tasks, and live stream. The separate `DemoAdmin` object stores the workspace index and one global MCP URL; it does not hold chat sessions.
 
-## Responsibilities
+## Agent and transcript
 
-Pi Durable and Pi AI own:
-
-- conversation entries and agent turns;
-- Workers AI model execution and the tool loop;
-- `schedule`, `list_schedules`, `cancel_schedule`, and MCP call tools;
-- durable reminder and proactive follow-up tasks;
-- retries, task recovery, and progress snapshots;
-- the conversation watch used by the browser's SSE stream.
-
-The application adapter owns only the demo interface around that runtime:
-
-- accept a room ID, display name, and message;
-- write normal group chat as passive Pi Durable entries;
-- project conversation entries and `pi.live` into a compact browser snapshot;
-- provide optional Worker-owner-configured MCP server details.
+Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, task recovery, and live snapshots. Group posts are passive entries; Ask Agent, reminders, and follow-ups submit inputs to the same workspace conversation. The browser receives SSE snapshots containing committed transcript entries and `pi.live` partial/tool state. Guest UI exposes the display-name field only; the share link selects the workspace.
 
 ## Scheduled work
 
-A reminder is a Pi Durable task, not a timestamp stored in a separate app calendar. When due, the task submits an instruction to the room's root conversation. The Durable Object alarm wakes the Harness, and the resulting assistant response appears in the same transcript and live stream.
+A reminder is a Pi Durable task, not a separate app calendar. When due, it submits an instruction to the workspace root conversation. A Durable Object alarm wakes the Harness, and the assistant response appears in the same transcript and activity stream.
 
-## Automatic follow-up
+## Conversation-aware follow-up
 
-After a group message, the room monitor classifies whether an unresolved turn merits a later check-in. A positive result creates a durable Pi task with the current room revision. A newer group message advances that revision; stale tasks do not deliver. The task submits a follow-up input to the same Pi conversation after its delay. Real timed delivery still needs a live smoke test with Workers AI.
+After each group message, Workers AI reviews recent chat chronology for open questions, requests, decisions, promised actions, and blockers. It should consider later replies and not treat a question mark alone as sufficient. If a check-in would help, Pi Durable schedules it after a 15-minute quiet period. New group messages reset the review; an Ask Agent turn cancels old candidates and triggers a new review after the agent responds. The task submits its check-in to the same conversation. Live timed delivery still needs a deployed smoke test.
 
-## MCP
+## Shared MCP
 
-The optional Worker variable `MCP_URL` points to one public, unauthenticated Streamable HTTP server. The Harness registers `call_mcp_tool`; the tool checks the server's advertised tool list before invoking it. OAuth, user-managed connectors, and app-level connector settings are out of scope for this starter.
+An admin connects one public HTTPS Streamable HTTP server. `DemoAdmin` stores the endpoint globally for all workspaces. The admin form discovers tools before saving; each workspace agent can call only an advertised tool. OAuth, private MCP endpoints, and stored credentials are out of scope.
 
-## Removed from the former product implementation
+## Access boundary
 
-The demo no longer includes app sign-in, roles, invites, private-room membership/catalog, AI provider settings, Anthropic credentials, skills, connector OAuth management, a schedule calendar, or the old global `MultiPersonChat` state owner. The Worker provides no app authentication: room IDs are public names. Users who need private access must add their own authentication and authorization.
-
-The old `MultiPersonChat` and `PiSession` Durable Object namespaces are tombstoned in `wrangler.jsonc`. Deploying the new `ChatRoom` class deletes those old namespaces and their data; preservation was explicitly waived. The refactor was not remotely deployed.
+Guests do not sign in: anyone with the random workspace link can read and post. The `/admin` UI requires the Worker secret `ADMIN_SECRET`. This is a demo-level admin gate, not a guest identity/ACL system. Keep the secret out of chat, URLs, source, and logs.
 
 ## Verification boundary
 
-Local tests cover Pi Durable turns, tool registration, task delivery/stale follow-up behavior, streamed partial snapshots, Worker room isolation, SSE delivery, and the browser's shared-room flow. They do not establish that a live Workers AI model, a real public MCP server, or a 30-minute live follow-up works in a deployed environment. Run those smoke tests against a disposable public demo configuration before making external-integration claims.
+Local tests cover Pi Durable turns/tasks, follow-up classification and stale-candidate behavior, workspace isolation, admin gating, SSE, and browser rendering. They do not prove live Workers AI inference, a real MCP server connection, or wall-clock follow-up delivery.

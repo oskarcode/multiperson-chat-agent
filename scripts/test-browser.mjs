@@ -36,12 +36,16 @@ try {
   await expect(admin.locator('#mcpStatus')).toContainText('public DNS hostname');
 
   await alice.goto(base + familyPath);
+  await expect(alice.locator('#authorName')).toBeVisible();
+  await expect(alice.locator('#roomId')).toHaveCount(0);
+  await expect(alice.locator('#connectRoom')).toHaveCount(0);
   await alice.locator('#authorName').fill('Alice');
-  await expect(alice.locator('#status')).toContainText('Connected to public workspace');
+  await expect(alice.locator('#status')).toContainText('Connected to public');
   await expect(alice.locator('#workspaceTitle')).toHaveText('Family room');
+  await expect(alice.locator('#status')).not.toContainText(familyPath.slice(3));
   await bob.goto(base + familyPath);
   await bob.locator('#authorName').fill('Bob');
-  await expect(bob.locator('#status')).toContainText('Connected to public workspace');
+  await expect(bob.locator('#status')).toContainText('Connected to public');
 
   await alice.locator('#composer').fill('Hello to everyone in this workspace.');
   await alice.locator('#sendGroup').click();
@@ -64,7 +68,7 @@ try {
   const progressId = projectPath.slice(3);
   const partialSnapshot = {
     workspace: { id: progressId, title: 'Project room', createdAt: Date.now() },
-    messages: [],
+    messages: [{ id: 'agent-answer', authorName: 'Group Agent', kind: 'agent', text: '**Short answer**\n\n- First step\n- Second step\n\n[Read more](https://example.com) <img src=x onerror=alert(1)>' }],
     progress: { active: true, partialText: 'A streamed partial answer.', tools: [{ name: 'call_mcp_tool', status: 'running', output: 'Searching…' }] },
   };
   await progressPage.route(`**/api/workspaces/${progressId}/events`, route => route.fulfill({
@@ -76,6 +80,10 @@ try {
   });
   await progressPage.goto(base + projectPath);
   await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
+  await expect(progressPage.locator('#messages strong')).toHaveText('Short answer');
+  await expect(progressPage.locator('#messages ul li')).toHaveCount(2);
+  await expect(progressPage.locator('#messages a')).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(progressPage.locator('#messages img')).toHaveCount(0);
   await expect(progressPage.locator('#activityPanel')).not.toHaveClass(/hidden/u);
   await progressPage.locator('#activityPanel summary').click();
   await expect(progressPage.locator('#activityPanel')).toHaveJSProperty('open', true);
@@ -90,5 +98,5 @@ try {
   expect(await bob.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(alice.locator('#mcpSummary')).toHaveText('not connected');
   expect(errors).toEqual([]);
-  console.log('Browser tests passed: admin workspace creation, public share links, shared chat, isolation, streamed agent activity, MCP configuration guard, and mobile layout.');
+  console.log('Browser tests passed: shared workspaces, guest chat, safe agent Markdown rendering, streamed activity, MCP configuration, and mobile layout.');
 } finally { await browser?.close(); await mf.dispose(); }

@@ -1,13 +1,21 @@
 import type { Models } from "@earendil-works/pi-ai";
 import type { ChatMessage } from "../protocol/chat";
 
-/** Prefer the cheap path for an explicit open question; use Workers AI for ambiguous turns. */
+/** Review the recent room conversation for an unanswered or still-open item. */
 export async function messageNeedsFollowUp(models: Models, modelId: string, message: ChatMessage, recentConversation: string): Promise<boolean> {
-  if (message.text.includes("?")) return true;
   await models.refresh({ providers: ["cloudflare"] });
   const model = models.getModel("cloudflare", modelId);
   if (!model) return false;
-  const prompt = `Decide whether to send one gentle follow-up if this remains the latest room message for 30 minutes. Reply only YES or NO.\n\nYES for an unanswered question, a requested confirmation, an open decision/action, or an invitation to a next step. NO for complete answers, casual updates, acknowledgements, or closed remarks.\n\nLatest speaker: ${message.authorName}\nLatest message: ${JSON.stringify(message.text.slice(0, 2000))}\n\nRecent room conversation:\n${recentConversation}`;
+  const prompt = `Review the recent group conversation below, not just the latest line. Decide whether one gentle follow-up from the workspace agent would help now, after the room has been quiet for a while. Reply only YES or NO.
+
+Reply YES when an important question, request for help, confirmation, decision, promised action, or blocker still appears unanswered or unresolved after considering all later replies. Prefer the most recent unresolved item, but do not ignore an earlier important request just because someone posted a casual update afterward.
+
+Reply NO when a person or the agent has already answered, the group has made a decision, the request was declined or closed, the question is rhetorical, or a follow-up would just interrupt casual conversation. A question mark alone is not enough.
+
+Latest group message from ${message.authorName}: ${JSON.stringify(message.text.slice(0, 2000))}
+
+Recent conversation in chronological order:
+${recentConversation}`;
   const answer = await models.complete(model, { messages: [{ role: "user", content: prompt, timestamp: Date.now() }] }, { temperature: 0, maxTokens: 8 });
   const text = answer.content.flatMap((part) => part.type === "text" ? [part.text] : []).join(" ").trim().toLowerCase();
   return /^yes\b/u.test(text);

@@ -54,9 +54,9 @@ export const DeliverProactiveFollowUp = defineTask<ProactiveFollowUpInput, Follo
           whenBusy: "followUp",
           content: [
             "[Group Agent proactive follow-up]",
-            `The latest unresolved turn from ${task.input.authorName} has been waiting for 30 minutes: ${JSON.stringify(task.input.message)}.`,
-            "Write one concise, useful check-in. Do not mention automation or timers.",
-            "Recent room conversation:",
+            `The room has been quiet since ${task.input.authorName} said: ${JSON.stringify(task.input.message)}.`,
+            "Review the conversation context below. If the important question, request, decision, or blocker is still unresolved, send one brief, kind check-in about it. Do not repeat an issue that has already been answered or closed, and do not mention automation or timers.",
+            "Recent room conversation in chronological order:",
             task.input.recentConversation,
           ].join("\n\n"),
           entry: {

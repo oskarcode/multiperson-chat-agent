@@ -2,10 +2,9 @@ export const appPage = String.raw`
   <main class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1 id="workspaceTitle">MultiPerson Chat</h1><p>Talk together, or bring in the workspace agent.</p></div></div>
-      <div class="room-controls">
+      <div class="guest-controls">
         <label>Your name<input id="authorName" maxlength="80" autocomplete="name" /></label>
-        <label>Room ID<input id="roomId" maxlength="80" /></label>
-        <button id="connectRoom" type="button">Join workspace</button>
+        <span class="muted">Your share link selects the workspace.</span>
       </div>
     </header>
 
@@ -19,7 +18,7 @@ export const appPage = String.raw`
       <ul id="mcpTools"></ul>
     </details>
 
-    <section class="chat card" aria-label="Room chat">
+    <section class="chat card" aria-label="Workspace chat">
       <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
       <details id="activityPanel" class="activity-panel hidden">
         <summary>Live agent activity <span id="activitySummary" class="muted">Idle</span></summary>
@@ -27,8 +26,8 @@ export const appPage = String.raw`
       </details>
       <form id="composerForm" class="composer">
         <label class="sr-only" for="composer">Message</label>
-        <textarea id="composer" rows="3" placeholder="Message your room…" maxlength="4000"></textarea>
-        <div class="composer-footer"><span class="muted">Room IDs are public: share one to chat together.</span><div class="actions"><button id="sendGroup" class="secondary" type="button">Send to group</button><button id="sendAgent" type="button">Ask Agent</button></div></div>
+        <textarea id="composer" rows="3" placeholder="Message your workspace…" maxlength="4000"></textarea>
+        <div class="composer-footer"><span class="muted">Anyone with this share link can read and post.</span><div class="actions"><button id="sendGroup" class="secondary" type="button">Send to group</button><button id="sendAgent" type="button">Ask Agent</button></div></div>
       </form>
       <p id="error" class="error" role="alert"></p>
     </section>

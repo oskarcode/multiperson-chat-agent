@@ -8,7 +8,7 @@ import { messageNeedsFollowUp } from "../src/session/follow-up-classifier";
 import { DeliverScheduledInstruction } from "../src/session/schedule-task";
 import { snapshotFromView } from "../src/session/transcript";
 
-const fakeEnv = (run: () => Promise<Response>): Env => ({
+const fakeEnv = (run: (...args: unknown[]) => Promise<Response>): Env => ({
   AI: { run },
   AI_MODEL: STARTER_AGENT_MODEL,
 } as unknown as Env);
@@ -58,6 +58,25 @@ describe("Pi Durable room agent", () => {
       }, "Guest: The plan still needs an owner.");
       expect(needsFollowUp).toBe(true);
       expect(run).toHaveBeenCalled();
+    } finally { await harness.close(BACKGROUND_CONTEXT); }
+  });
+
+  it("reviews later replies before following up on an explicit question", async () => {
+    let reviewPrompt = "";
+    const run = vi.fn(async (...args: unknown[]) => {
+      reviewPrompt = JSON.stringify(args);
+      return response("NO");
+    });
+    const configured = options(fakeEnv(run));
+    const harness = await Harness.open(new MemoryStorage(), configured, BACKGROUND_CONTEXT);
+    try {
+      const needsFollowUp = await messageNeedsFollowUp(configured.models, STARTER_AGENT_MODEL, {
+        id: "question-1", authorName: "Guest", kind: "group", text: "Can someone confirm the time?", createdAt: Date.now(),
+      }, "Guest: Can someone confirm the time?\nAlice: Yes, 2 PM works for me.");
+      expect(needsFollowUp).toBe(false);
+      expect(run).toHaveBeenCalledOnce();
+      expect(reviewPrompt).toContain("A question mark alone is not enough.");
+      expect(reviewPrompt).toContain("Yes, 2 PM works for me");
     } finally { await harness.close(BACKGROUND_CONTEXT); }
   });
 

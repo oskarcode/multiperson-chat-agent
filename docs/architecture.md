@@ -29,13 +29,13 @@ A workspace's random ID maps deterministically to one `ChatRoom`, so its group t
 
 Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. `ChatRoom` adapts public chat actions into Pi Durable entries/inputs and projects each watched view into an SSE snapshot. The browser renders partial assistant text and tool calls/results in a collapsible activity panel; the same partial text is also visible in the transcript.
 
-Normal group messages are passive entries; **Ask Agent** submits an input to the same workspace conversation. `schedule`, `list_schedules`, and `cancel_schedule` are Pi tools. Due reminders and proactive follow-ups submit inputs into that conversation. Newer group messages invalidate older follow-up candidates. Durable Object alarms wake the Harness for due tasks.
+Normal group messages are passive entries; **Ask Agent** submits an input to the same workspace conversation. `schedule`, `list_schedules`, and `cancel_schedule` are Pi tools. Due reminders and proactive follow-ups submit inputs into that conversation. After group messages, Workers AI reviews recent history for unanswered questions, requests, decisions, and blockers. A useful follow-up is scheduled after a 15-minute quiet period. New group messages reset the review; an agent answer invalidates old candidates and triggers a fresh review of the conversation. Durable Object alarms wake the Harness for due tasks.
 
 ## Admin and guest access
 
 The admin page at `/admin` sends a bearer `ADMIN_SECRET` header to admin APIs. The secret is held as a Wrangler Worker secret and is never returned by the Worker. The browser keeps the entered secret only for that tab's `sessionStorage` session. Workspace chat APIs intentionally require no auth: possession of the random share URL grants read/write access.
 
-The Worker verifies a workspace ID is in the admin index before serving `/w/:id` or the `/api/workspaces/:id/*` routes. The legacy `/api/rooms/:id/*` routes remain for old query-style demo access. This is a demo gate, not a full account/ACL system.
+The Worker verifies a workspace ID is in the admin index before serving `/w/:id` or the `/api/workspaces/:id/*` routes. Guests can change their display name; the share URL selects the workspace, with no editable ID field or ID in the chat status. The legacy `/api/rooms/:id/*` routes remain for old query-style demo access. This is a demo gate, not a full account/ACL system.
 
 ## Shared MCP
 

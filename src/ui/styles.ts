@@ -17,8 +17,9 @@ export const appStyles = String.raw`
     h1, h2, p { margin: 0; }
     h1 { font-size: 1.35rem; letter-spacing: -.03em; }
     .brand p { margin-top: .2rem; color: #777f74; font-size: .9rem; }
-    .room-controls { display: grid; grid-template-columns: minmax(110px, 150px) minmax(110px, 150px) auto; align-items: end; gap: .6rem; }
-    .room-controls input { padding: .6rem .7rem; }
+    .guest-controls { display: flex; align-items: end; gap: .7rem; }
+    .guest-controls label { min-width: 150px; }
+    .guest-controls input { padding: .6rem .7rem; }
     .status { min-height: 1.5rem; color: #627067; font-size: .88rem; padding: .2rem 0 .65rem; }
     .card { border: 1px solid #e1e6de; border-radius: 1rem; background: white; box-shadow: 0 10px 32px #233a2410; }
     .mcp-panel { margin: 0 0 .8rem; border: 1px solid #e1e6de; border-radius: .8rem; background: #fff; padding: .8rem 1rem; }
@@ -31,11 +32,24 @@ export const appStyles = String.raw`
     .empty strong { display: block; margin-bottom: .35rem; color: #343c34; font-size: 1.1rem; }
     .message { width: fit-content; max-width: min(82%, 680px); margin: 0 0 .8rem; border: 1px solid #e5e9e2; border-radius: .85rem; padding: .75rem .9rem; background: #f7f8f5; }
     .message.mine { margin-left: auto; background: #edf4ec; border-color: #dce9dc; }
-    .message.agent { background: #f4f1e8; border-color: #ebe4d2; }
+    .message.agent { max-width: min(94%, 780px); background: #fff; border-color: #e6e9e3; box-shadow: 0 2px 8px #233a2408; }
     .message.system { width: 100%; max-width: 100%; background: #fafafa; color: #60685f; border-style: dashed; }
     .message.streaming { border-color: #7ca58a; }
     .byline { margin-bottom: .35rem; color: #697267; font-size: .76rem; font-weight: 700; }
-    .message-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+    .message-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+    .message-text.markdown { white-space: normal; line-height: 1.65; }
+    .message-text p { margin: 0; }
+    .message-text p + p { margin-top: .75em; }
+    .message-text ul, .message-text ol { margin: .45em 0 .65em; padding-left: 1.35em; }
+    .message-text li + li { margin-top: .2em; }
+    .message-text h1, .message-text h2, .message-text h3 { margin: .8em 0 .35em; line-height: 1.3; }
+    .message-text h1 { font-size: 1.2em; }
+    .message-text h2 { font-size: 1.1em; }
+    .message-text h3 { font-size: 1em; }
+    .message-text blockquote { margin: .5em 0; border-left: 3px solid #cbd8ca; padding-left: .8em; color: #5f6b5e; }
+    .message-text pre { overflow-x: auto; margin: .65em 0; border-radius: .6em; padding: .8em; background: #202a22; color: #f3f6f2; }
+    .message-text pre code { display: block; padding: 0; background: transparent; color: inherit; }
+    .message-text a { color: #315c42; text-decoration-thickness: 1px; text-underline-offset: 2px; }
     .activity-panel { border-top: 1px solid #edf0ea; background: #fbfcfa; }
     .activity-panel summary { cursor: pointer; padding: .7rem 1.2rem; color: #465247; font-size: .84rem; font-weight: 700; }
     .activity-panel summary .muted { margin-left: .45rem; font-weight: 400; }
@@ -67,8 +81,8 @@ export const appStyles = String.raw`
     @media (max-width: 700px) {
       .shell { width: min(100% - 1rem, 920px); padding-top: .8rem; }
       .topbar { align-items: stretch; flex-direction: column; gap: 1rem; }
-      .room-controls { grid-template-columns: 1fr 1fr; }
-      .room-controls button { grid-column: span 2; }
+      .guest-controls { align-items: stretch; flex-direction: column; }
+      .guest-controls label { min-width: 0; }
       .admin-form { grid-template-columns: 1fr; }
       .admin-form .wide { grid-column: auto; }
       .admin-item { align-items: stretch; flex-direction: column; }

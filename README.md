@@ -7,7 +7,7 @@ This is a demo, not an authenticated chat product. A workspace URL is a bearer l
 ## Demo flow
 
 1. Open `/admin`, enter the admin secret, and create a named workspace.
-2. Copy its `/w/<id>` link and share it with guests. Guests do not need accounts or a secret.
+2. Copy its `/w/<id>` link and share it with guests. The link selects the workspace; guests only choose a display name and do not need accounts or a secret.
 3. Chat together or ask the workspace agent for help. The agent's partial answer and tool activity stream into the collapsible **Live agent activity** panel.
 4. Optionally connect one public Streamable HTTP MCP endpoint in the admin UI. Its discovered tools become available in every workspace.
 5. Ask the agent to schedule a reminder. Pi Durable stores the task and the room Durable Object wakes when it is due.
@@ -58,6 +58,10 @@ Guest browser -> /w/<workspace-id> (public share link)
 
 The workspace Durable Object watches the Pi Durable conversation and forwards snapshots over SSE. The browser renders partial assistant text and tool state in the collapsible activity panel as the agent runs; reconnecting receives a current snapshot.
 
+### Automatic follow-up
+
+After a group message, Workers AI reviews the recent conversation for unanswered questions, requests, decisions, and blockers—not just question marks in the newest line. If a useful check-in is warranted, Pi Durable schedules it for a 15-minute quiet period. New group messages reset the review; an agent answer also triggers a fresh review and invalidates stale follow-ups. The follow-up task reads the conversation context before writing its check-in.
+
 ### MCP configuration
 
 The admin UI connects and tests one public HTTPS Streamable HTTP MCP server, then saves the endpoint globally for all workspaces. Guests can see the advertised tools and the agent can call them. OAuth, private endpoints, and saved credentials are not supported. The admin secret is required to change this outbound destination.
@@ -85,7 +89,7 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-Checks cover admin-secret gating, workspace creation and state, public guest sharing, room isolation, SSE, activity-panel rendering, MCP URL validation, Pi agent/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding and do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+Checks cover admin-secret gating, workspace creation and state, public guest sharing without an ID field, workspace isolation, SSE, activity-panel rendering, MCP URL validation, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding and do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
 
 ## Deploy
 

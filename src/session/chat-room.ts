@@ -17,7 +17,7 @@ import { snapshotFromView, messagesFromEntries, promptContext } from "./transcri
 
 const encoder = new TextEncoder();
 const ROOT_CONVERSATION_ID = 1 as const;
-const FOLLOW_UP_DELAY_MS = 30 * 60 * 1000;
+const FOLLOW_UP_DELAY_MS = 15 * 60 * 1000;
 const MCP_CACHE_MS = 60_000;
 
 type FollowUpInput = Partial<ProactiveFollowUpInput>;
@@ -133,6 +133,7 @@ export class ChatRoom extends DurableObject<Env> {
       const harness = await this.#ready;
       const root = await harness.root(BACKGROUND_CONTEXT);
       const ask: ChatMessage = { id: requestId, authorName, kind: "agent-request", text, createdAt: Date.now() };
+      await this.#advanceFollowUpRevision();
       await this.#updatePromptContext(root, ask);
       harness.resume();
       const submission = await root.submit({
@@ -205,21 +206,7 @@ export class ChatRoom extends DurableObject<Env> {
   async #monitorMessage(message: ChatMessage): Promise<void> {
     const harness = await this.#ready;
     const root = await harness.root(BACKGROUND_CONTEXT);
-    const revision = await harness.commit(async (tx) => {
-      const cursor = await tx.doc(FollowUpCursor);
-      cursor.revision += 1;
-      return cursor.revision;
-    }, BACKGROUND_CONTEXT);
-
-    const inspection = await harness.inspect(BACKGROUND_CONTEXT);
-    for (const task of inspection.tasks) {
-      if (task.record.kind !== DeliverProactiveFollowUp.definition.name) continue;
-      const input = task.record.input as FollowUpInput;
-      if (typeof input.triggerRevision === "number" && input.triggerRevision < revision) {
-        await harness.abortTask(task.record.id, BACKGROUND_CONTEXT);
-      }
-    }
-
+    const revision = await this.#advanceFollowUpRevision();
     if (!this.#models) return;
     const messages = messagesFromEntries((await root.context(BACKGROUND_CONTEXT)).entries);
     const recent = messages.slice(-30).map((item) => `${item.authorName}: ${item.text}`).join("\n").slice(-7000);
@@ -269,6 +256,25 @@ export class ChatRoom extends DurableObject<Env> {
     return cancelled === "marked";
   }
 
+  async #advanceFollowUpRevision(): Promise<number> {
+    const harness = await this.#ready;
+    const revision = await harness.commit(async (tx) => {
+      const cursor = await tx.doc(FollowUpCursor);
+      cursor.revision += 1;
+      return cursor.revision;
+    }, BACKGROUND_CONTEXT);
+    const inspection = await harness.inspect(BACKGROUND_CONTEXT);
+    for (const task of inspection.tasks) {
+      if (task.record.kind !== DeliverProactiveFollowUp.definition.name) continue;
+      const input = task.record.input as FollowUpInput;
+      if (typeof input.triggerRevision === "number" && input.triggerRevision < revision) {
+        await harness.abortTask(task.record.id, BACKGROUND_CONTEXT);
+      }
+    }
+    await this.#refreshWakeupAlarm(harness);
+    return revision;
+  }
+
   async #getMcpUrl(): Promise<string> {
     return this.env.ADMIN.getByName("global").getMcpUrl();
   }
@@ -290,6 +296,13 @@ export class ChatRoom extends DurableObject<Env> {
     try {
       const settled = await submission.wait(BACKGROUND_CONTEXT);
       if (settled.status !== "done") this.#log("Agent submission ended without a final answer", settled.status);
+      else {
+        const root = await (await this.#ready).root(BACKGROUND_CONTEXT);
+        const messages = messagesFromEntries((await root.context(BACKGROUND_CONTEXT)).entries);
+        const latestGroup = [...messages].reverse().find((message) => message.kind === "group");
+        if (latestGroup) await this.#monitorMessage(latestGroup);
+        else await this.#advanceFollowUpRevision();
+      }
     } catch (error) {
       this.#log("Agent submission failed", error);
     } finally {

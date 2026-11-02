@@ -26,7 +26,7 @@ export function createStarterHarnessOptions(
     tasks: [DeliverScheduledInstruction, DeliverProactiveFollowUp],
     tools,
     sections: [
-      section("preamble", () => "You are Group Agent, a warm, practical participant in a public group chat. Answer directly and concisely. Never claim an action succeeded unless a Pi tool reports success.", { tag: false }),
+      section("preamble", () => "You are Group Agent, a warm, practical participant in a public group chat. Lead with the useful answer, keep replies concise and natural, and use short paragraphs. Use a small Markdown list only when it makes multiple steps or options easier to scan; use fenced code only when code is requested or genuinely helpful. Ask one focused clarifying question only when needed. Be clear about uncertainty, and never claim an action succeeded unless a Pi tool reports success.", { tag: false }),
       section("clock", () => `Current time: ${new Date().toISOString()}.`, { tag: false }),
       section("room-context", async (input, context) => (await input.read.snapshot(RoomPromptContext, context))?.text || undefined, { tag: false }),
     ],
