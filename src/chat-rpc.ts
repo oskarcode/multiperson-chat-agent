@@ -6,7 +6,6 @@ import type {
   Connector,
   Member,
   Role,
-  Schedule,
   SetupStatus,
   Skill,
   SkillFile,
@@ -78,7 +77,4 @@ export interface MultiPersonChatRpc {
     content: string;
   }): Promise<SkillFile>;
   setSkillEnabled(input: { actorId: string; skillId: string; enabled: boolean }): Promise<Skill>;
-  listSchedules(input: { actorId: string; from?: number; to?: number }): Promise<Schedule[]>;
-  createSchedule(input: { actorId: string; workspaceId: string; instruction: string; runAt: number }): Promise<Schedule>;
-  deleteSchedule(input: { actorId: string; scheduleId: string }): Promise<boolean>;
 }

@@ -9,6 +9,8 @@ describe("architecture guardrails", () => {
     expect(pkg.dependencies?.["@earendil-works/chord"]).toBeTruthy();
     expect(existsSync("src/session/pi-session.ts")).toBe(true);
     expect(existsSync("src/session/harness.ts")).toBe(true);
+    expect(existsSync("src/session/schedule-task.ts")).toBe(true);
+    expect(existsSync("src/durable/features/schedules.ts")).toBe(false);
 
     const wrangler = readFileSync("wrangler.jsonc", "utf8");
     expect(wrangler).toContain('"name": "SESSIONS"');

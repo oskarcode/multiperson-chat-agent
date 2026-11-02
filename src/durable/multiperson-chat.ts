@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../platform-env";
-import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector, Member, Role, Schedule, SetupStatus, Skill, SkillFile, Workspace } from "../protocol/chat";
+import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector, Member, Role, SetupStatus, Skill, SkillFile, Workspace } from "../protocol/chat";
 import type { DurableFeatureContext } from "./feature-context";
 import { CHAT_SCHEMA_SQL, LEGACY_COLUMNS } from "./schema";
 import { getAiRuntimeSettings as readAiRuntimeSettings, getAiSettings as readAiSettings, updateAiSettings as saveAiSettings } from "./features/ai-settings";
@@ -8,7 +8,6 @@ import { addConnector as addStoredConnector, callConnectorTool as callStoredConn
 import { acceptInvite as acceptRoomInvite, createInvite as createRoomInvite, joinWithInvite as joinRoomWithInvite, listInvites as listRoomInvites, revokeInvite as revokeRoomInvite } from "./features/invites";
 import { getMember as readMember, listMembers as readMembers, loginAppMember as loginMember, setupAppOwner as createInitialOwner, setupStatus as readSetupStatus } from "./features/members";
 import { appendAgentMessage as appendStoredAgentMessage, appendGroupMessage as appendStoredGroupMessage, insertMessage, listMessages as listStoredMessages, recentTranscript as readRecentTranscript, recentWorkspaceMessages } from "./features/messages";
-import { createSchedule as createStoredSchedule, deleteSchedule as deleteStoredSchedule, listSchedules as listStoredSchedules } from "./features/schedules";
 import { createSkill as createStoredSkill, listSkillFiles as listStoredSkillFiles, listSkills as listStoredSkills, setSkillEnabled as setStoredSkillEnabled, updateSkillFile as updateStoredSkillFile } from "./features/skills";
 import { deliverDueFollowUps, recoverInterruptedFollowUps, refreshFollowUpAlarm, trackFollowUp } from "./features/follow-ups";
 import { createWorkspace as createStoredWorkspace, insertWorkspace, listAllWorkspaces, listWorkspaces as listMemberWorkspaces, requireWorkspaceMember as requireStoredWorkspaceMember } from "./features/workspaces";
@@ -139,19 +138,6 @@ export class MultiPersonChat extends DurableObject<Env> {
 
   async updateAiSettings(input: { actorId: string; provider: AiProvider; model: string; apiKey?: string | null }): Promise<AiSettings> {
     return saveAiSettings(this.featureContext(), input);
-  }
-
-  // Schedules
-  async listSchedules(input: { actorId: string; from?: number; to?: number }): Promise<Schedule[]> {
-    return listStoredSchedules(this.featureContext(), input);
-  }
-
-  async createSchedule(input: { actorId: string; workspaceId: string; instruction: string; runAt: number }): Promise<Schedule> {
-    return createStoredSchedule(this.featureContext(), input);
-  }
-
-  async deleteSchedule(input: { actorId: string; scheduleId: string }): Promise<boolean> {
-    return deleteStoredSchedule(this.featureContext(), input);
   }
 
   // Skills

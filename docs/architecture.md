@@ -1,6 +1,6 @@
 # MultiPerson Chat with Agent architecture
 
-MultiPerson Chat with Agent is a single Cloudflare Worker with one SQLite-backed Durable Object. The design favors direct, product-specific modules over generic frameworks so the code is easy to read and extend.
+MultiPerson Chat with Agent is a single Cloudflare Worker with SQLite-backed Durable Objects. The design favors direct, product-specific modules over generic frameworks so the code is easy to read and extend.
 
 ## Runtime components
 
@@ -25,7 +25,7 @@ Browser
 - `src/durable/features/connectors.ts` — MCP connector metadata, OAuth state, tool cache, tool calls
 - `src/durable/features/ai-settings.ts` — AI provider/model/API-key settings
 - `src/durable/features/skills.ts` — agent skills and skill files
-- `src/durable/features/schedules.ts` — calendar/schedule records
+- `src/session/schedule-task.ts` — Pi Durable task-backed calendar records
 - `src/durable/features/follow-ups.ts` — proactive follow-up records, classifier, delivery, alarms
 
 Shared Durable Object helpers live in `src/durable/validation.ts`, `src/durable/rows.ts`, and `src/durable/feature-context.ts`.
@@ -36,7 +36,7 @@ The Durable Object binding and exported class name are deployment state:
 - class/export: `MultiPersonChat`
 - storage: SQLite Durable Object storage
 
-A second Durable Object binding, `SESSIONS`, points at `PiSession`. It currently opens a Pi Durable `Harness` and root conversation as the migration target for future transcript, tool, task, and schedule behavior. Public chat traffic still uses the `CHAT` object until the migration is complete.
+A second Durable Object binding, `SESSIONS`, points at `PiSession`. Calendar schedules now run through Pi Durable tasks in a room-scoped `PiSession`; public chat transcript traffic still uses the `CHAT` object until the rest of the migration is complete.
 
 ## Security boundaries
 
@@ -81,8 +81,9 @@ src/ui/client-script.ts         -> browser state, fetch callers, rendering, and 
 src/index.ts                    -> Worker entrypoint and Durable Object export
 src/http/app.ts                 -> Hono route mounting and page fallback
 src/http/routes/*               -> grouped API route handlers
-src/session/pi-session.ts       -> Pi Durable-backed session Durable Object migration target
+src/session/pi-session.ts       -> Pi Durable-backed room session Durable Object
 src/session/harness.ts          -> minimal Pi Durable harness composition
+src/session/schedule-task.ts    -> Pi Durable task definition for calendar reminders
 src/http/session.ts             -> signed session lookup and authenticated route middleware
 src/http/input.ts               -> JSON/body/query helpers for route handlers
 src/durable/multiperson-chat.ts -> Durable Object lifecycle and RPC delegation

@@ -73,14 +73,6 @@ export const CHAT_SCHEMA_SQL = `
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (skill_id, path)
   );
-  CREATE TABLE IF NOT EXISTS schedules (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL,
-    instruction TEXT NOT NULL,
-    run_at INTEGER NOT NULL,
-    created_by TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
   CREATE TABLE IF NOT EXISTS proactive_followups (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
@@ -91,7 +83,6 @@ export const CHAT_SCHEMA_SQL = `
     status TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'resolved'))
   );
   CREATE INDEX IF NOT EXISTS messages_workspace_created ON messages(workspace_id, created_at, id);
-  CREATE INDEX IF NOT EXISTS schedules_workspace_run ON schedules(workspace_id, run_at);
   CREATE INDEX IF NOT EXISTS proactive_followups_due ON proactive_followups(status, due_at);
 `;
 
