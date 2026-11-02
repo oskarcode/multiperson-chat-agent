@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { generateAgentReply } from "../../agent/reply";
-import type { AppBindings } from "../context";
+import { isAdmin, type AppBindings } from "../context";
 import { optionalTextField, requestJson, textField } from "../input";
 import { requireAuth } from "../session";
 
@@ -15,6 +15,7 @@ workspaceRoutes.get("/", async (c) => {
 
 workspaceRoutes.post("/", async (c) => {
   const { member, chat } = c.var.auth;
+  if (!isAdmin(member)) return c.json({ error: "Only owners and admins can create rooms" }, 403);
   const body = await requestJson(c);
   return c.json(await chat.createWorkspace({ actorId: member.id, title: textField(body, "title") }), 201);
 });

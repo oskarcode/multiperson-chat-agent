@@ -65,6 +65,7 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       const guest = joins.find(r => r.status === 201);
       assert.equal(guest.data.member.email, null);
       assert.deepEqual((await request(mf, '/api/workspaces', null, guest.cookie)).data.workspaces.map(r => r.id), [groupRoom]);
+      assert.equal((await request(mf, '/api/workspaces', { title: 'Guest room' }, guest.cookie)).status, 403);
       assert.equal((await request(mf, `/api/workspaces/${privateRoom}/messages`, null, guest.cookie)).status, 400);
       const laterRoom = (await request(mf, '/api/workspaces', { title: 'New private room' }, ownerCookie)).data.id;
       assert.equal((await request(mf, `/api/workspaces/${laterRoom}/messages`, null, guest.cookie)).status, 400);

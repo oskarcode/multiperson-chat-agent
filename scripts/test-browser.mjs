@@ -38,6 +38,8 @@ try {
   await expect(guest.locator('#roomTitle')).toHaveText('General room');
   await expect(guest.locator('#app')).toBeVisible();
   await expect(guest.locator('#pendingInvite')).toBeHidden();
+  await expect(guest.locator('#newWorkspaceButton')).toBeHidden();
+  await expect(guest.locator('#newWorkspace')).toBeHidden();
   await guest.locator('#composer').fill('Dinner at six?');
   await guest.locator('#sendGroup').click();
   await expect(guest.locator('#messages')).toContainText('Dinner at six?');
