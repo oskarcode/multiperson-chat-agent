@@ -1,14 +1,34 @@
 import { DurableObject } from "cloudflare:workers";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness, type HarnessInspection, type TaskId } from "@earendil-works/pi-durable";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Models } from "@earendil-works/pi-ai";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import type { Env } from "../platform-env";
 import type { ChatMessage, Schedule } from "../protocol/chat";
+import { messageNeedsFollowUp } from "./follow-up-classifier";
+import type { MultiPersonChatRpc } from "../chat-rpc";
 import { SessionCredentialStore } from "./credentials";
+import { DeliverProactiveFollowUp, FollowUpCursor, type ProactiveFollowUpInput } from "./follow-up-task";
+import { defaultAiModel } from "../agent/models";
 import { createStarterHarnessOptions } from "./harness";
 import { RoomPromptContext } from "./room-context";
 import { scheduleFromTask, DeliverScheduledInstruction } from "./schedule-task";
+
+type AgentTurnInput = {
+  actorId: string;
+  actorName: string;
+  publicOrigin: string;
+  workspaceId: string;
+  workspaceTitle: string;
+  promptContext: string;
+  requestId: string;
+  userMessage: string;
+  provider: "workers-ai" | "anthropic";
+  model: string;
+  apiKey?: string;
+};
+
+type ObserveMessageInput = { message: ChatMessage; recentConversation: string; workspaceTitle: string };
 
 type PiSessionStatus = {
   readonly ok: true;
@@ -20,6 +40,8 @@ type PiSessionStatus = {
 export class PiSession extends DurableObject<Env> {
   readonly #credentials = new SessionCredentialStore();
   readonly #ready: Promise<Harness>;
+  #models: Models | undefined;
+  #contextQueue: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -40,30 +62,115 @@ export class PiSession extends DurableObject<Env> {
     };
   }
 
-  async setRoomContext(input: { workspaceId: string; workspaceTitle: string; actorId: string; text: string }): Promise<void> {
+  async setRoomContext(input: { workspaceId: string; workspaceTitle: string; actorId: string; publicOrigin: string; text: string }): Promise<void> {
     const harness = await this.#ready;
     await harness.commit(async (tx) => {
       const doc = await tx.doc(RoomPromptContext);
       doc.workspaceId = input.workspaceId;
       doc.workspaceTitle = input.workspaceTitle;
       doc.actorId = input.actorId;
+      doc.publicOrigin = input.publicOrigin;
       doc.text = input.text;
     }, BACKGROUND_CONTEXT);
   }
 
-  async runAgent(input: {
-    actorId: string;
-    actorName: string;
-    workspaceId: string;
-    workspaceTitle: string;
-    promptContext: string;
-    requestId: string;
-    userMessage: string;
-    provider: "workers-ai" | "anthropic";
-    model: string;
-    apiKey?: string;
-  }): Promise<ChatMessage> {
-    await this.setRoomContext({ workspaceId: input.workspaceId, workspaceTitle: input.workspaceTitle, actorId: input.actorId, text: input.promptContext });
+  async observeGroupMessage(input: ObserveMessageInput): Promise<void> {
+    return this.#withContextQueue(() => this.#observeGroupMessage(input));
+  }
+
+  async #observeGroupMessage(input: ObserveMessageInput): Promise<void> {
+    const message = input.message;
+    const harness = await this.#ready;
+    const room = await harness.snapshot(RoomPromptContext, BACKGROUND_CONTEXT);
+    await this.setRoomContext({
+      workspaceId: message.workspaceId,
+      workspaceTitle: input.workspaceTitle,
+      actorId: message.authorId,
+      publicOrigin: room?.publicOrigin ?? "",
+      text: room?.text ?? "",
+    });
+    await this.#hydrateAnthropicCredential(message.authorId);
+
+    const revision = await harness.commit(async (tx) => {
+      const cursor = await tx.doc(FollowUpCursor);
+      cursor.revision += 1;
+      return cursor.revision;
+    }, BACKGROUND_CONTEXT);
+    const inspection = await harness.inspect(BACKGROUND_CONTEXT);
+    for (const task of inspection.tasks) {
+      if (task.record.kind !== DeliverProactiveFollowUp.definition.name) continue;
+      const scheduled = task.record.input as Partial<ProactiveFollowUpInput>;
+      if (scheduled.workspaceId === message.workspaceId && typeof scheduled.triggerRevision === "number" && scheduled.triggerRevision < revision) {
+        await harness.abortTask(task.record.id, BACKGROUND_CONTEXT);
+      }
+    }
+
+    let needsFollowUp = false;
+    if (message.kind === "group") {
+      try {
+        const appState = this.env.CHAT.getByName("default-group") as unknown as {
+          getAiRuntimeSettings(memberId: string): Promise<{ provider: "workers-ai" | "anthropic"; model: string } | null>;
+        };
+        const settings = await appState.getAiRuntimeSettings(message.authorId);
+        const provider = settings?.provider === "anthropic" ? "anthropic" : "cloudflare";
+        await this.#hydrateAnthropicCredential(message.authorId);
+        if (this.#models) needsFollowUp = await messageNeedsFollowUp(this.#models, provider, settings?.model ?? defaultAiModel(this.env), message, input.recentConversation);
+      } catch (error) {
+        console.warn(JSON.stringify({ message: "Pi AI follow-up classification failed", error: error instanceof Error ? error.message : String(error) }));
+      }
+    }
+    if (needsFollowUp) {
+      const root = await harness.root(BACKGROUND_CONTEXT);
+      const dueAt = Date.now() + 30 * 60 * 1000;
+      await root.commit((tx) => tx.createTask(DeliverProactiveFollowUp, {
+        workspaceId: message.workspaceId,
+        conversationId: root.id,
+        triggerRevision: revision,
+        authorId: message.authorId,
+        authorName: message.authorName,
+        message: message.text.slice(0, 4000),
+        recentConversation: input.recentConversation.slice(-7000),
+        dueAt,
+      }, { ownership: { kind: "conversation" }, background: true }), BACKGROUND_CONTEXT);
+      await this.#setAlarmNoLaterThan(dueAt);
+    }
+    harness.resume();
+    await this.#refreshWakeupAlarm(harness);
+  }
+
+  async scheduleLegacyFollowUp(input: { legacyId: string; actorId: string; authorName: string; workspaceId: string; message: string; recentConversation: string }): Promise<void> {
+    return this.#withContextQueue(() => this.#scheduleLegacyFollowUp(input));
+  }
+
+  async #scheduleLegacyFollowUp(input: { legacyId: string; actorId: string; authorName: string; workspaceId: string; message: string; recentConversation: string }): Promise<void> {
+    const harness = await this.#ready;
+    const room = await harness.snapshot(RoomPromptContext, BACKGROUND_CONTEXT);
+    await this.setRoomContext({ workspaceId: input.workspaceId, workspaceTitle: room?.workspaceTitle ?? "Room", actorId: input.actorId, publicOrigin: room?.publicOrigin ?? "", text: room?.text ?? "" });
+    await this.#hydrateAnthropicCredential(input.actorId);
+    const root = await harness.root(BACKGROUND_CONTEXT);
+    const cursor = await harness.snapshot(FollowUpCursor, BACKGROUND_CONTEXT);
+    const dueAt = Date.now();
+    await root.commit((tx) => tx.createTask(DeliverProactiveFollowUp, {
+      workspaceId: input.workspaceId,
+      conversationId: root.id,
+      triggerRevision: cursor?.revision ?? 0,
+      authorId: input.actorId,
+      authorName: input.authorName,
+      message: input.message.slice(0, 4000),
+      recentConversation: input.recentConversation.slice(-7000),
+      dueAt,
+      requestKey: input.legacyId,
+    }, { ownership: { kind: "conversation" }, background: true }), BACKGROUND_CONTEXT);
+    harness.resume();
+    await this.#refreshWakeupAlarm(harness);
+  }
+
+  async runAgent(input: AgentTurnInput): Promise<ChatMessage> {
+    return this.#withContextQueue(() => this.#runAgentTurn(input));
+  }
+
+  async #runAgentTurn(input: AgentTurnInput): Promise<ChatMessage> {
+    await this.setRoomContext({ workspaceId: input.workspaceId, workspaceTitle: input.workspaceTitle, actorId: input.actorId, publicOrigin: input.publicOrigin, text: input.promptContext });
     await this.#credentials.setAnthropicKey(input.provider === "anthropic" ? input.apiKey : undefined);
 
     const harness = await this.#ready;
@@ -158,9 +265,13 @@ export class PiSession extends DurableObject<Env> {
   }
 
   async createSchedule(input: { actorId: string; workspaceId: string; workspaceTitle?: string; instruction: string; runAt: number }): Promise<Schedule> {
+    return this.#withContextQueue(() => this.#createSchedule(input));
+  }
+
+  async #createSchedule(input: { actorId: string; workspaceId: string; workspaceTitle?: string; instruction: string; runAt: number }): Promise<Schedule> {
     const harness = await this.#ready;
     const roomContext = await harness.snapshot(RoomPromptContext, BACKGROUND_CONTEXT);
-    await this.setRoomContext({ workspaceId: input.workspaceId, workspaceTitle: input.workspaceTitle ?? roomContext?.workspaceTitle ?? "Room", actorId: input.actorId, text: roomContext?.text ?? "" });
+    await this.setRoomContext({ workspaceId: input.workspaceId, workspaceTitle: input.workspaceTitle ?? roomContext?.workspaceTitle ?? "Room", actorId: input.actorId, publicOrigin: roomContext?.publicOrigin ?? "", text: roomContext?.text ?? "" });
     await this.#hydrateAnthropicCredential(input.actorId);
     const root = await harness.root(BACKGROUND_CONTEXT);
     const createdAt = Date.now();
@@ -214,7 +325,32 @@ export class PiSession extends DurableObject<Env> {
         return this.deleteSchedule({ scheduleId, workspaceId: room.workspaceId });
       },
     };
-    const harness = await Harness.open(storage, createStarterHarnessOptions(this.env, this.#credentials, scheduleOperations), BACKGROUND_CONTEXT);
+    const capabilityOperations = {
+      callConnector: async (input: { connectorId: string; toolName: string; args: Record<string, unknown> }) => {
+        const room = await this.#roomContext();
+        if (!room.actorId || !room.publicOrigin) throw new Error("The room actor context is not ready");
+        const chat = this.env.CHAT.getByName("default-group") as unknown as MultiPersonChatRpc;
+        const connector = (await chat.listConnectors(room.actorId)).find((item) => item.id === input.connectorId);
+        if (!connector || connector.status !== "connected" || !connector.tools.some((tool) => tool.name === input.toolName)) {
+          throw new Error("Connector or tool is not currently available in this room");
+        }
+        return chat.callConnectorTool({ actorId: room.actorId, connectorId: input.connectorId, publicOrigin: room.publicOrigin, toolName: input.toolName, args: input.args });
+      },
+      readSkillFile: async (input: { slug: string; path?: string }) => {
+        const room = await this.#roomContext();
+        if (!room.actorId) throw new Error("The room actor context is not ready");
+        const chat = this.env.CHAT.getByName("default-group") as unknown as MultiPersonChatRpc;
+        const skill = (await chat.listSkills(room.actorId)).find((item) => item.enabled && item.slug === input.slug);
+        if (!skill) throw new Error("Enabled skill not found");
+        const path = input.path ?? "SKILL.md";
+        const file = (await chat.listSkillFiles({ actorId: room.actorId, skillId: skill.id })).find((item) => item.path === path);
+        if (!file) throw new Error("Skill file not found");
+        return { path, content: file.content };
+      },
+    };
+    const options = createStarterHarnessOptions(this.env, this.#credentials, scheduleOperations, capabilityOperations);
+    this.#models = options.models;
+    const harness = await Harness.open(storage, options, BACKGROUND_CONTEXT);
     await this.#refreshWakeupAlarm(harness);
     return harness;
   }
@@ -226,6 +362,15 @@ export class PiSession extends DurableObject<Env> {
       .map(scheduleFromTask)
       .filter((schedule): schedule is Schedule => schedule !== null)
       .map((schedule) => schedule.runAt > now ? schedule.runAt : now + 60_000);
+    deadlines.push(...inspection.tasks
+      .filter((task) => task.record.kind === DeliverProactiveFollowUp.definition.name)
+      .map((task) => {
+        const checkpoint = "checkpoint" in task.record.state ? task.record.state.checkpoint as { phase?: string; retryAt?: number } : undefined;
+        const retryAt = checkpoint?.phase === "retry" ? checkpoint.retryAt : undefined;
+        return typeof retryAt === "number" ? retryAt : (task.record.input as Partial<ProactiveFollowUpInput>).dueAt;
+      })
+      .filter((dueAt): dueAt is number => typeof dueAt === "number" && Number.isFinite(dueAt))
+      .map((dueAt) => dueAt > now ? dueAt : now + 60_000));
     if (deadlines.length === 0) {
       await this.ctx.storage.deleteAlarm();
       return;
@@ -238,9 +383,21 @@ export class PiSession extends DurableObject<Env> {
     if (current === null || current > timestamp) await this.ctx.storage.setAlarm(timestamp);
   }
 
-  async #roomContext(): Promise<{ workspaceId: string; workspaceTitle: string; actorId: string }> {
+  async #roomContext(): Promise<{ workspaceId: string; workspaceTitle: string; actorId: string; publicOrigin: string }> {
     const snapshot = await (await this.#ready).snapshot(RoomPromptContext, BACKGROUND_CONTEXT);
-    return { workspaceId: snapshot?.workspaceId ?? "", workspaceTitle: snapshot?.workspaceTitle ?? "Room", actorId: snapshot?.actorId ?? "" };
+    return { workspaceId: snapshot?.workspaceId ?? "", workspaceTitle: snapshot?.workspaceTitle ?? "Room", actorId: snapshot?.actorId ?? "", publicOrigin: snapshot?.publicOrigin ?? "" };
+  }
+
+  async #withContextQueue<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.#contextQueue;
+    let release!: () => void;
+    this.#contextQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   async #hydrateAnthropicCredential(actorId?: string): Promise<void> {

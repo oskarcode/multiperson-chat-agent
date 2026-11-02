@@ -24,8 +24,7 @@ export class MultiPersonChat extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
-    // Durable Object alarms resume background follow-up work after the request
-    // that scheduled it has finished, so alarm handling stays at the DO boundary.
+    // Drain only legacy follow-up rows written before new work moved to Pi tasks.
     await deliverDueFollowUps(this.featureContext());
     await refreshFollowUpAlarm(this.featureContext());
   }
@@ -34,8 +33,7 @@ export class MultiPersonChat extends DurableObject<Env> {
     this.ctx.storage.sql.exec(CHAT_SCHEMA_SQL);
     // Legacy columns are additive migrations for older deployed DO storage.
     for (const column of LEGACY_COLUMNS) this.addColumnIfMissing(column.table, column.column, column.definition);
-    // A deployment or eviction can stop an alarm after it claimed a follow-up.
-    // Reset old claims on startup so the alarm loop can retry instead of dropping them.
+    // Recover an interrupted legacy row so its Pi-task transfer is retried after restart.
     recoverInterruptedFollowUps(this.featureContext());
   }
 

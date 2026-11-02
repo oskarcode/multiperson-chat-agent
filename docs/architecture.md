@@ -26,7 +26,7 @@ Browser
 - `src/durable/features/ai-settings.ts` — AI provider/model/API-key settings
 - `src/durable/features/skills.ts` — agent skills and skill files
 - `src/session/schedule-task.ts` — Pi Durable task-backed calendar records
-- `src/durable/features/follow-ups.ts` — proactive follow-up records, classifier, delivery, alarms
+- `src/durable/features/follow-ups.ts` — Pi Durable follow-up handoff plus legacy-row resolution during migration
 
 Shared Durable Object helpers live in `src/durable/validation.ts`, `src/durable/rows.ts`, and `src/durable/feature-context.ts`.
 
@@ -36,7 +36,7 @@ The Durable Object binding and exported class name are deployment state:
 - class/export: `MultiPersonChat`
 - storage: SQLite Durable Object storage
 
-A second Durable Object binding, `SESSIONS`, points at a room-scoped `PiSession`. Ask Agent requests are submitted to a Pi Durable conversation using Pi AI providers and Pi-registered tools. Scheduled tasks wake the session and submit their reminder to that conversation. The HTTP transcript adapter combines app-owned group messages from `CHAT` with agent and scheduled entries from Pi Durable.
+A second Durable Object binding, `SESSIONS`, points at a room-scoped `PiSession`. Ask Agent and proactive follow-up requests use Pi AI providers and Pi Durable tasks; the Harness registers schedule, connector, and skill-file tools. Connector authorization and skill persistence remain app-owned. Scheduled tasks wake the session and submit their work to the Pi conversation. The HTTP transcript adapter combines app-owned group messages from `CHAT` with agent and scheduled entries from Pi Durable.
 
 ## Security boundaries
 

@@ -13,8 +13,9 @@ This project is intentionally direct: no frontend build step, no external databa
 - Supports owner/admin password sign-in.
 - Lets users send normal group messages or click **Ask Agent** for an AI response.
 - Supports optional Workers AI or Anthropic model settings.
-- Includes optional MCP connector plumbing for owner/admin tools.
-- Uses Pi Durable Harness/Pi AI for agent turns, model tool execution, durable reminders, and conversation history; app-owned auth, rooms, memberships, and group-message catalog remain in the product Durable Object.
+- Includes optional MCP connectors; the agent can invoke cached connector tools only when the current actor passes the existing owner/admin authorization.
+- Supports enabled group skills through Pi's `read_skill_file` tool while keeping skill editing and storage app-owned.
+- Uses Pi Durable Harness/Pi AI for agent turns, model/tool execution, durable reminders, proactive follow-ups, and conversation history; app-owned auth, rooms, memberships, and group-message catalog remain in the product Durable Object.
 
 ## Quick deploy with a coding agent
 

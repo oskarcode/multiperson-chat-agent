@@ -12,12 +12,18 @@ describe("architecture guardrails", () => {
     expect(existsSync("src/session/harness.ts")).toBe(true);
     expect(existsSync("src/session/schedule-task.ts")).toBe(true);
     expect(existsSync("src/session/schedule-tools.ts")).toBe(true);
+    expect(existsSync("src/session/follow-up-task.ts")).toBe(true);
+    expect(existsSync("src/session/capability-tools.ts")).toBe(true);
     expect(existsSync("src/durable/features/schedules.ts")).toBe(false);
     const task = readFileSync("src/session/schedule-task.ts", "utf8");
     expect(task).toContain("runtime.conversation");
     expect(task).toContain("conversation.submit");
     const tools = readFileSync("src/session/schedule-tools.ts", "utf8");
     for (const name of ["schedule", "list_schedules", "cancel_schedule"]) expect(tools).toContain(`name: "${name}"`);
+    const capabilities = readFileSync("src/session/capability-tools.ts", "utf8");
+    for (const name of ["call_connector_tool", "read_skill_file"]) expect(capabilities).toContain(`name: "${name}"`);
+    expect(capabilities).toContain('replay: "unsafe"');
+    expect(readFileSync("src/durable/features/follow-ups.ts", "utf8")).not.toContain("env.AI.run");
     const agentContext = readFileSync("src/agent/context.ts", "utf8");
     expect(agentContext).not.toContain("fetch(");
 

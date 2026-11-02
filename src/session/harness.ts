@@ -6,8 +6,10 @@ import type { CredentialStore } from "@earendil-works/pi-ai";
 import type { Env } from "../platform-env";
 import { DEFAULT_WORKERS_AI_MODEL } from "../agent/models";
 import { createScheduleTools, type ScheduleToolOperations } from "./schedule-tools";
+import { createCapabilityTools, type AgentCapabilityOperations } from "./capability-tools";
 import { RoomPromptContext } from "./room-context";
 import { DeliverScheduledInstruction } from "./schedule-task";
+import { DeliverProactiveFollowUp } from "./follow-up-task";
 
 export const STARTER_AGENT_MODEL = DEFAULT_WORKERS_AI_MODEL;
 
@@ -16,6 +18,7 @@ export function createStarterHarnessOptions(
   env: Env,
   credentials: CredentialStore,
   scheduleOperations: ScheduleToolOperations,
+  capabilityOperations: AgentCapabilityOperations,
 ): HarnessOptions {
   const models = createModels({ credentials });
   if (env.AI !== undefined) {
@@ -24,10 +27,10 @@ export function createStarterHarnessOptions(
   }
   models.setProvider(anthropicProvider());
 
-  const tools: ToolRegistration[] = createScheduleTools(scheduleOperations);
+  const tools: ToolRegistration[] = [...createScheduleTools(scheduleOperations), ...createCapabilityTools(capabilityOperations)];
   const chatExtension = defineExtension({
     name: "multiperson-chat",
-    tasks: [DeliverScheduledInstruction],
+    tasks: [DeliverScheduledInstruction, DeliverProactiveFollowUp],
     tools,
     sections: [
       section("preamble", () => "You are Group Agent, a warm, practical AI participant in a private group chat. Answer directly, be concise, and do not claim an action succeeded unless its Pi tool returned success.", { tag: false }),

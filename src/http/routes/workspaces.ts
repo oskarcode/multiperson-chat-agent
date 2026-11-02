@@ -13,6 +13,7 @@ type PiSessionRpc = {
   runAgent(input: {
     actorId: string;
     actorName: string;
+    publicOrigin: string;
     workspaceId: string;
     workspaceTitle: string;
     promptContext: string;
@@ -68,6 +69,7 @@ workspaceRoutes.post("/:workspaceId/messages", async (c) => {
     const reply = await session(c, workspaceId).runAgent({
       actorId: member.id,
       actorName: member.name,
+      publicOrigin: new URL(c.req.url).origin,
       workspaceId,
       workspaceTitle: workspace.title,
       promptContext,

@@ -70,6 +70,12 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       const privateSchedule = await request(mf, '/api/schedules', { workspaceId: privateRoom, instruction: 'Review private plan', runAt: runAt + 60_000 }, ownerCookie);
       assert.equal(privateSchedule.status, 201);
       assert.equal((await request(mf, '/api/schedules', null, ownerCookie)).data.schedules.length, 2);
+      assert.equal((await request(mf, `/api/workspaces/${groupRoom}/messages`, { text: 'Can anyone confirm the plan?' }, ownerCookie)).status, 201);
+      const sessions = await mf.getDurableObjectNamespace('SESSIONS');
+      const roomSession = sessions.get(sessions.idFromName(groupRoom));
+      assert.equal((await roomSession.status()).liveTasks, 2);
+      assert.equal((await request(mf, `/api/workspaces/${groupRoom}/messages`, { text: 'The plan is confirmed.' }, ownerCookie)).status, 201);
+      assert.equal((await roomSession.status()).liveTasks, 1);
       const invite = async room => (await request(mf, '/api/invites', { workspaceId: room }, ownerCookie)).data;
       const firstInvite = await invite(groupRoom);
       const joins = await Promise.all(['a', 'b'].map(n => request(mf, '/api/join', { code: firstInvite.code, name: n })));
@@ -91,6 +97,7 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       assert.equal((await request(mf, '/api/schedules', null, guest.cookie)).data.schedules.length, 2);
       assert.equal((await request(mf, `/api/schedules/${schedule.data.id}`, null, guest.cookie, 'DELETE')).status, 403);
       assert.equal((await request(mf, '/api/pi/status', null, guest.cookie)).status, 403);
+      assert.equal((await request(mf, '/api/connectors/not-configured/tools/read_data/call', { args: {} }, guest.cookie)).status, 403);
       const revoked = await invite(groupRoom);
       assert.equal((await request(mf, `/api/invites/${revoked.code}`, null, guest.cookie, 'DELETE')).status, 400);
       assert.equal((await request(mf, `/api/invites/${revoked.code}`, null, ownerCookie, 'DELETE')).status, 200);
