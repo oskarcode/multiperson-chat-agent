@@ -101,6 +101,15 @@ export const appStyles = String.raw`
     .msg.agent, .msg.agent-request { max-width:48rem; }
     .msg.agent .byline, .msg.agent-request .byline { color:#8a8782; }
     .msg.agent > div:last-child, .msg.agent-request > div:last-child { color:#24211f; line-height:1.55; }
+    .message-content { white-space: normal; }
+    .message-content > :first-child { margin-top: 0; }
+    .message-content > :last-child { margin-bottom: 0; }
+    .message-content p { margin: .35rem 0 .85rem; }
+    .message-content ul, .message-content ol { margin: .45rem 0 .9rem 1.25rem; padding: 0; }
+    .message-content li { margin: .18rem 0; }
+    .message-content h1, .message-content h2, .message-content h3 { margin: .9rem 0 .35rem; color:#211f1d; font-size:1rem; line-height:1.25; letter-spacing:-.02em; }
+    .message-content pre { max-height: 18rem; padding: .75rem; border:1px solid var(--line); border-radius:.75rem; background:#f8f7f6; color:#24211f; white-space: pre-wrap; }
+    .message-content a { color: var(--blue); font-weight: 700; }
     .prompt-bar { display:grid; gap:.1rem; width:min(calc(100% - 2rem), 62rem); max-width:62rem; margin:0 auto .75rem; padding:.35rem; border:1px solid #d9dce2; border-radius:1.35rem; background:#fff; box-shadow:0 10px 30px rgb(16 24 40 / 10%); transition:border-color 140ms ease, box-shadow 140ms ease; }
     .prompt-bar:focus-within { border-color:color-mix(in srgb, var(--accent) 45%, #d9dce2); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent), 0 12px 34px rgb(16 24 40 / 12%); }
     #composer { width:100%; min-height:3.25rem; max-height:12rem; margin:0; padding:.7rem .9rem .2rem; resize:none; overflow-y:hidden; border:0; border-radius:1rem; background:transparent; box-shadow:none; font-size:1rem; line-height:1.5; }

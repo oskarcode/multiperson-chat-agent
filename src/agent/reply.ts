@@ -35,7 +35,10 @@ const transcriptMessages = (transcript: ChatMessage[], system: string): Array<{ 
   { role: "system", content: system },
   ...transcript.map((message) => ({
     role: message.kind === "agent" ? "assistant" as const : "user" as const,
-    content: `${message.authorName}: ${message.text}`,
+    // Human turns keep their author name for group context. Assistant turns do
+    // not, because model providers already know they are assistant messages;
+    // repeating "Group Agent:" encourages duplicate prefixes in replies.
+    content: message.kind === "agent" ? message.text : `${message.authorName}: ${message.text}`,
   })),
 ];
 
@@ -56,8 +59,8 @@ export async function generateAgentReply(env: Env, chat: MultiPersonChatRpc, act
   const scheduleNote = schedules.length === 0
     ? "No upcoming group schedules are saved."
     : `Upcoming group schedules: ${schedules.slice(0, 12).map((schedule) => `${new Date(schedule.runAt).toISOString()} ${schedule.workspaceTitle ?? "Room"}: ${schedule.instruction}`).join("; ")}. If asked to create or change a schedule, explain that this starter currently saves schedules from Settings → Calendar.`;
-  const system = `You are Group Agent, a warm resident AI participant in a private group chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, group-friendly, and transparent about uncertainty. ${connectorNote} ${skillNote} ${scheduleNote}`;
-  const prompt = `${system}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nReply as Group Agent.`;
+  const system = `You are Group Agent, a warm resident AI participant in a private group chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, group-friendly, and transparent about uncertainty. Answer directly; do not start with "Group Agent:" or your own name. Use short Markdown lists when they make the answer easier to scan. ${connectorNote} ${skillNote} ${scheduleNote}`;
+  const prompt = `${system}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nAnswer directly without a name prefix.`;
   const messages = transcriptMessages(transcript, system);
 
   const settings = await chat.getAiRuntimeSettings(actorId);
@@ -70,7 +73,7 @@ export async function generateAgentReply(env: Env, chat: MultiPersonChatRpc, act
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": settings.apiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model, max_tokens: 800, system, messages: transcript.map((message) => ({ role: message.kind === "agent" ? "assistant" : "user", content: `${message.authorName}: ${message.text}` })) }),
+        body: JSON.stringify({ model, max_tokens: 800, system, messages: transcript.map((message) => ({ role: message.kind === "agent" ? "assistant" : "user", content: message.kind === "agent" ? message.text : `${message.authorName}: ${message.text}` })) }),
       });
       const data = await response.json() as { content?: Array<{ type?: string; text?: string }>; error?: { message?: string } };
       if (!response.ok) throw new Error(data.error?.message || `Anthropic request failed (${response.status})`);
