@@ -55,9 +55,23 @@ async function messageNeedsFollowUp(ctx: DurableFeatureContext, message: ChatMes
   }
 }
 
+// If an alarm is interrupted after claiming a row but before the catch block can
+// put it back, the row would otherwise stay `delivering` forever. Because this
+// feature has no separate claimed_at column, use the original due_at as a simple
+// recovery watermark and retry stuck deliveries after the normal recovery delay.
+export function recoverInterruptedFollowUps(ctx: DurableFeatureContext): void {
+  const current = now();
+  ctx.state.storage.sql.exec(
+    "UPDATE proactive_followups SET status = 'pending', due_at = ? WHERE status = 'delivering' AND due_at <= ?",
+    current + FOLLOW_UP_RECOVERY_DELAY_MS,
+    current - FOLLOW_UP_RECOVERY_DELAY_MS,
+  );
+}
+
 // Runs from MultiPersonChat.alarm(). It rechecks the transcript before posting so a
 // scheduled follow-up cannot race with a real group reply.
 export async function deliverDueFollowUps(ctx: DurableFeatureContext): Promise<void> {
+  recoverInterruptedFollowUps(ctx);
   const due = ctx.state.storage.sql
     .exec<{ id: string; workspace_id: string; trigger_message_id: number; author_name: string; message: string; due_at: number }>(
       `SELECT id, workspace_id, trigger_message_id, author_name, message, due_at
@@ -98,6 +112,7 @@ export async function setFollowUpAlarmNoLaterThan(ctx: DurableFeatureContext, ti
 }
 
 export async function refreshFollowUpAlarm(ctx: DurableFeatureContext): Promise<void> {
+  recoverInterruptedFollowUps(ctx);
   const dueAt = ctx.state.storage.sql
     .exec<{ due_at: number | null }>("SELECT MIN(due_at) AS due_at FROM proactive_followups WHERE status = 'pending'")
     .one().due_at;

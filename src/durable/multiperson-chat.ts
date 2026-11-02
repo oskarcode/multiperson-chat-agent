@@ -10,7 +10,7 @@ import { getMember as readMember, listMembers as readMembers, loginAppMember as 
 import { appendAgentMessage as appendStoredAgentMessage, appendGroupMessage as appendStoredGroupMessage, insertMessage, listMessages as listStoredMessages, recentTranscript as readRecentTranscript, recentWorkspaceMessages } from "./features/messages";
 import { createSchedule as createStoredSchedule, deleteSchedule as deleteStoredSchedule, listSchedules as listStoredSchedules } from "./features/schedules";
 import { createSkill as createStoredSkill, listSkillFiles as listStoredSkillFiles, listSkills as listStoredSkills, setSkillEnabled as setStoredSkillEnabled, updateSkillFile as updateStoredSkillFile } from "./features/skills";
-import { deliverDueFollowUps, refreshFollowUpAlarm, trackFollowUp } from "./features/follow-ups";
+import { deliverDueFollowUps, recoverInterruptedFollowUps, refreshFollowUpAlarm, trackFollowUp } from "./features/follow-ups";
 import { createWorkspace as createStoredWorkspace, insertWorkspace, listAllWorkspaces, listWorkspaces as listMemberWorkspaces, requireWorkspaceMember as requireStoredWorkspaceMember } from "./features/workspaces";
 
 // This class is the Durable Object boundary Cloudflare instantiates.
@@ -35,6 +35,9 @@ export class MultiPersonChat extends DurableObject<Env> {
     this.ctx.storage.sql.exec(CHAT_SCHEMA_SQL);
     // Legacy columns are additive migrations for older deployed DO storage.
     for (const column of LEGACY_COLUMNS) this.addColumnIfMissing(column.table, column.column, column.definition);
+    // A deployment or eviction can stop an alarm after it claimed a follow-up.
+    // Reset old claims on startup so the alarm loop can retry instead of dropping them.
+    recoverInterruptedFollowUps(this.featureContext());
   }
 
   // Setup and members

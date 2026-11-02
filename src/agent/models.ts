@@ -12,8 +12,8 @@ export const AI_MODELS = [
   { provider: "workers-ai", id: "@cf/zai-org/glm-5.2", label: "GLM-5.2", description: "Z.ai flagship agentic model on Workers AI; may require Workers Paid." },
   { provider: "workers-ai", id: "@cf/zai-org/glm-5.3-flash", label: "GLM-5.3 Flash", description: "Fast Z.ai GLM-5 generation where available." },
   { provider: "workers-ai", id: "@cf/zai-org/glm-5.3", label: "GLM-5.3", description: "Larger Z.ai GLM-5 generation where available." },
-  { provider: "anthropic", id: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", description: "Bring your own Anthropic API key." },
-  { provider: "anthropic", id: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", description: "Bring your own Anthropic API key." },
+  { provider: "anthropic", id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", description: "Bring your own Anthropic API key." },
+  { provider: "anthropic", id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", description: "Bring your own Anthropic API key." },
 ] as const;
 
 export const defaultAiModel = (env: Env): string => env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
