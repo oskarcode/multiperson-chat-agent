@@ -22,7 +22,14 @@ export type RoomProgress = {
   }[];
 };
 
+export type WorkspaceInfo = {
+  readonly id: string;
+  readonly title: string;
+  readonly createdAt: number;
+};
+
 export type RoomSnapshot = {
+  readonly workspace?: WorkspaceInfo;
   readonly messages: readonly ChatMessage[];
   readonly progress: RoomProgress;
 };

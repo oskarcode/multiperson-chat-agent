@@ -4,13 +4,13 @@ import { McpClient, StreamableHttpTransport, type CallToolResult, type Tool } fr
 const clientName = "multiperson-chat-demo";
 const clientVersion = "0.2.0";
 
-function assertPublicHttpsUrl(value: string): string {
+export function validatePublicMcpUrl(value: string): string {
   const url = new URL(value);
   const host = url.hostname.toLowerCase();
   if (url.protocol !== "https:" || url.username || url.password) {
     throw new Error("MCP_URL must be a public HTTPS URL without embedded credentials.");
   }
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || host.startsWith("[")) {
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || host.startsWith("[") || /^(?:\d{1,3}\.){3}\d{1,3}$/u.test(host)) {
     throw new Error("MCP_URL must use a public DNS hostname.");
   }
   return url.href;
@@ -18,7 +18,7 @@ function assertPublicHttpsUrl(value: string): string {
 
 async function withClient<T>(url: string, timeoutMs: number, run: (client: McpClient, signal: AbortSignal) => Promise<T>): Promise<T> {
   const client = new McpClient({ name: clientName, version: clientVersion, requestTimeoutMs: timeoutMs });
-  await client.connect(new StreamableHttpTransport({ url: assertPublicHttpsUrl(url), openGetStream: false }));
+  await client.connect(new StreamableHttpTransport({ url: validatePublicMcpUrl(url), openGetStream: false }));
   try {
     return await run(client, AbortSignal.timeout(timeoutMs));
   } finally {

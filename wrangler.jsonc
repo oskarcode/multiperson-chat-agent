@@ -13,6 +13,10 @@
       {
         "name": "ROOMS",
         "class_name": "ChatRoom"
+      },
+      {
+        "name": "ADMIN",
+        "class_name": "DemoAdmin"
       }
     ]
   },
@@ -26,6 +30,10 @@
       "state": "deleted"
     },
     "ChatRoom": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "DemoAdmin": {
       "type": "durable-object",
       "storage": "sqlite"
     }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { ensureLocalAdminSecret } from './admin-secret.mjs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -20,12 +21,16 @@ export async function deploy() {
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new Error('Invalid Worker name.');
 
   let environment = { ...process.env, WRANGLER_SEND_METRICS: 'false' };
-  const run = (commandArgs, capture = false) => {
-    const result = spawnSync('pnpm', commandArgs, { encoding: 'utf8', env: environment, stdio: capture ? 'pipe' : 'inherit' });
+  const run = (commandArgs, capture = false, input) => {
+    const result = spawnSync('pnpm', commandArgs, {
+      encoding: 'utf8', env: environment,
+      stdio: capture || input !== undefined ? 'pipe' : 'inherit',
+      ...(input === undefined ? {} : { input }),
+    });
     if (result.error || result.status !== 0) throw new Error(`Command failed: pnpm ${commandArgs.join(' ')}`);
     return result.stdout || '';
   };
-  const wrangler = (commandArgs, capture = false) => run(['exec', 'wrangler', ...commandArgs], capture);
+  const wrangler = (commandArgs, capture = false, input) => run(['exec', 'wrangler', ...commandArgs], capture, input);
   let identity;
   try { identity = JSON.parse(wrangler(['whoami', '--json'], true)); }
   catch { throw new Error('Unable to verify Cloudflare authentication. Run wrangler login with the owner, then retry.'); }
@@ -48,8 +53,21 @@ export async function deploy() {
 
   console.log(`\nDeploy Worker: ${name}\nAccount: ${selected.name} (${account})\nURL: ${origin}`);
   run(['check']);
+  const admin = ensureLocalAdminSecret();
   wrangler(['deploy', '--name', name, '--keep-vars']);
-  console.log(`\nDeployed: ${origin}\nOpen the Worker URL and choose a room ID to start chatting.`);
+
+  let hasRemoteAdminSecret = false;
+  try {
+    const secrets = JSON.parse(wrangler(['secret', 'list', '--name', name, '--format', 'json'], true));
+    hasRemoteAdminSecret = Array.isArray(secrets) && secrets.some((item) => item.name === 'ADMIN_SECRET');
+  } catch { /* A new Worker has no secrets yet; create the admin secret below. */ }
+  if (admin.generated || !hasRemoteAdminSecret) {
+    // Secret input is piped to Wrangler and never echoed or logged by this helper.
+    wrangler(['secret', 'put', 'ADMIN_SECRET', '--name', name], false, admin.secret);
+    console.log('Admin secret provisioned from the ignored .dev.vars file.');
+  }
+
+  console.log(`\nDeployed: ${origin}\nAdmin page: ${origin}/admin\nThe admin secret is stored locally in the ignored .dev.vars file.`);
   try {
     const smoke = await fetch(origin, { redirect: 'manual' });
     const html = await smoke.text();

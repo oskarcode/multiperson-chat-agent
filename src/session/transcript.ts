@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/chord";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationView, EntryRecord, LiveState } from "@earendil-works/pi-durable";
-import type { ChatMessage, RoomSnapshot } from "../protocol/chat";
+import type { ChatMessage, RoomSnapshot, WorkspaceInfo } from "../protocol/chat";
 
 function record(value: JsonValue | undefined): Record<string, JsonValue> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
@@ -51,7 +51,7 @@ export function messagesFromEntries(entries: readonly EntryRecord[]): ChatMessag
   return messages.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 }
 
-export function snapshotFromView(view: ConversationView): RoomSnapshot {
+export function snapshotFromView(view: ConversationView, workspaceInfo?: WorkspaceInfo | null): RoomSnapshot {
   const live = view.docs["pi.live"] as LiveState | undefined;
   const partial = live?.generation?.message;
   const partialText = partial ? textContent(partial) : "";
@@ -60,16 +60,19 @@ export function snapshotFromView(view: ConversationView): RoomSnapshot {
     status: tool.status,
     ...(tool.output === undefined ? {} : { output: tool.output }),
   }));
+  const workspace = workspaceInfo ?? view.docs["app.workspace-info"] as WorkspaceInfo | undefined;
   return {
+    ...(workspace?.id ? { workspace } : {}),
     messages: messagesFromEntries(view.entries),
     progress: { active: live?.run !== undefined, partialText, tools },
   };
 }
 
-export function promptContext(messages: readonly ChatMessage[], tools: readonly { name: string; description?: string }[]): string {
+export function promptContext(messages: readonly ChatMessage[], tools: readonly { name: string; description?: string }[], workspaceTitle?: string): string {
   const recent = messages.slice(-30).map((message) => `${message.authorName} (${message.kind}): ${message.text}`).join("\n").slice(-8000);
   const toolList = tools.map((tool) => `- ${tool.name}${tool.description ? `: ${tool.description}` : ""}`).join("\n");
   return [
+    workspaceTitle ? `Workspace: ${workspaceTitle}` : undefined,
     recent ? `Recent room conversation:\n${recent}` : "No earlier room messages.",
     toolList ? `Available public MCP tools:\n${toolList}` : "No MCP tools are currently configured.",
   ].join("\n\n");

@@ -8,51 +8,77 @@ let browser;
 try {
   const base = (await mf.ready).origin;
   browser = await chromium.launch();
+  const adminContext = await browser.newContext();
   const aliceContext = await browser.newContext();
   const bobContext = await browser.newContext();
+  const admin = await adminContext.newPage();
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
   const errors = [];
-  for (const page of [alice, bob]) page.on('pageerror', error => errors.push(error.message));
+  for (const page of [admin, alice, bob]) page.on('pageerror', error => errors.push(error.message));
 
-  await alice.goto(base + '/?room=family');
+  await admin.goto(base + '/admin');
+  await admin.locator('#adminSecret').fill('test-admin-secret');
+  await admin.locator('#unlockForm button[type="submit"]').click();
+  await expect(admin.locator('#adminContent')).toBeVisible();
+  await admin.locator('#workspaceTitle').fill('Family room');
+  await admin.locator('#workspaceForm button').click();
+  await expect(admin.locator('#workspaces')).toContainText('Family room');
+  const familyPath = await admin.locator('#workspaces a').first().getAttribute('href');
+  expect(familyPath).toMatch(/^\/w\/[a-f0-9-]{36}$/u);
+  await admin.locator('#workspaceTitle').fill('Project room');
+  await admin.locator('#workspaceForm button').click();
+  await expect(admin.locator('#workspaces')).toContainText('Project room');
+  const projectPath = await admin.locator('#workspaces a').first().getAttribute('href');
+
+  await admin.locator('#mcpUrl').fill('https://127.0.0.1/mcp');
+  await admin.locator('#mcpForm button[type="submit"]').click();
+  await expect(admin.locator('#mcpStatus')).toContainText('public DNS hostname');
+
+  await alice.goto(base + familyPath);
   await alice.locator('#authorName').fill('Alice');
-  await expect(alice.locator('#status')).toContainText('Connected to public room');
-  await bob.goto(base + '/?room=family');
+  await expect(alice.locator('#status')).toContainText('Connected to public workspace');
+  await expect(alice.locator('#workspaceTitle')).toHaveText('Family room');
+  await bob.goto(base + familyPath);
   await bob.locator('#authorName').fill('Bob');
-  await expect(bob.locator('#status')).toContainText('Connected to public room');
+  await expect(bob.locator('#status')).toContainText('Connected to public workspace');
 
-  await alice.locator('#composer').fill('Hello to everyone in this room.');
+  await alice.locator('#composer').fill('Hello to everyone in this workspace.');
   await alice.locator('#sendGroup').click();
-  await expect(alice.locator('#messages')).toContainText('Hello to everyone in this room.');
-  await expect(bob.locator('#messages')).toContainText('Hello to everyone in this room.');
-  await bob.locator('#composer').fill('This is a shared room.');
+  await expect(alice.locator('#messages')).toContainText('Hello to everyone in this workspace.');
+  await expect(bob.locator('#messages')).toContainText('Hello to everyone in this workspace.');
+  await bob.locator('#composer').fill('This workspace is shared.');
   await bob.locator('#sendGroup').click();
-  await expect(alice.locator('#messages')).toContainText('This is a shared room.');
+  await expect(alice.locator('#messages')).toContainText('This workspace is shared.');
 
-  await bob.locator('#roomId').fill('another-room');
-  await bob.locator('#connectRoom').click();
-  await expect(bob.locator('#messages')).not.toContainText('Hello to everyone in this room.');
-  await bob.locator('#composer').fill('Only in another room.');
+  await bob.goto(base + projectPath);
+  await expect(bob.locator('#messages')).not.toContainText('Hello to everyone in this workspace.');
+  await bob.locator('#composer').fill('Only in the project workspace.');
   await bob.locator('#sendGroup').click();
-  await expect(bob.locator('#messages')).toContainText('Only in another room.');
-  await expect(alice.locator('#messages')).not.toContainText('Only in another room.');
+  await expect(bob.locator('#messages')).toContainText('Only in the project workspace.');
+  await expect(alice.locator('#messages')).not.toContainText('Only in the project workspace.');
 
   const progressPage = await browser.newPage();
+  progressPage.on('pageerror', error => errors.push(error.message));
   let agentRequest;
+  const progressId = projectPath.slice(3);
   const partialSnapshot = {
+    workspace: { id: progressId, title: 'Project room', createdAt: Date.now() },
     messages: [],
     progress: { active: true, partialText: 'A streamed partial answer.', tools: [{ name: 'call_mcp_tool', status: 'running', output: 'Searching…' }] },
   };
-  await progressPage.route('**/api/rooms/progress-room/events', route => route.fulfill({
+  await progressPage.route(`**/api/workspaces/${progressId}/events`, route => route.fulfill({
     status: 200, headers: { 'content-type': 'text/event-stream' }, body: `data: ${JSON.stringify(partialSnapshot)}\n\n`,
   }));
-  await progressPage.route('**/api/rooms/progress-room/messages', async route => {
+  await progressPage.route(`**/api/workspaces/${progressId}/messages`, async route => {
     agentRequest = route.request().postDataJSON();
     await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ requestId: 'browser-agent-request' }) });
   });
-  await progressPage.goto(base + '/?room=progress-room');
+  await progressPage.goto(base + projectPath);
   await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
+  await expect(progressPage.locator('#activityPanel')).not.toHaveClass(/hidden/u);
+  await progressPage.locator('#activityPanel summary').click();
+  await expect(progressPage.locator('#activityPanel')).toHaveJSProperty('open', true);
   await expect(progressPage.locator('#progress')).toContainText('Agent is using a tool');
   await expect(progressPage.locator('#progress')).toContainText('call_mcp_tool');
   await progressPage.locator('#composer').fill('Please help.');
@@ -62,7 +88,7 @@ try {
   await bob.setViewportSize({ width: 390, height: 844 });
   await expect(bob.locator('#composer')).toBeVisible();
   expect(await bob.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await expect(alice.locator('#mcpSummary')).toHaveText('not configured');
+  await expect(alice.locator('#mcpSummary')).toHaveText('not connected');
   expect(errors).toEqual([]);
-  console.log('Browser tests passed: shared rooms, isolation, live updates, Pi progress rendering, agent requests, public MCP status, and mobile layout.');
+  console.log('Browser tests passed: admin workspace creation, public share links, shared chat, isolation, streamed agent activity, MCP configuration guard, and mobile layout.');
 } finally { await browser?.close(); await mf.dispose(); }

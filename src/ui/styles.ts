@@ -36,8 +36,25 @@ export const appStyles = String.raw`
     .message.streaming { border-color: #7ca58a; }
     .byline { margin-bottom: .35rem; color: #697267; font-size: .76rem; font-weight: 700; }
     .message-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
-    .progress { padding: .6rem 1.2rem; border-top: 1px solid #edf0ea; color: #647067; font-size: .82rem; }
+    .activity-panel { border-top: 1px solid #edf0ea; background: #fbfcfa; }
+    .activity-panel summary { cursor: pointer; padding: .7rem 1.2rem; color: #465247; font-size: .84rem; font-weight: 700; }
+    .activity-panel summary .muted { margin-left: .45rem; font-weight: 400; }
+    .progress { padding: 0 1.2rem .8rem; color: #647067; font-size: .82rem; }
     .progress ul { margin: .35rem 0 0; padding-left: 1.1rem; }
+    .progress .partial { margin-top: .4rem; white-space: pre-wrap; overflow-wrap: anywhere; color: #455246; }
+    .admin-shell { width: min(100% - 2rem, 760px); margin: 0 auto; padding: 2rem 0; }
+    .admin-header, .admin-section { margin-bottom: 1rem; }
+    .admin-section { padding: 1.1rem; }
+    .admin-section h2 { margin-bottom: .75rem; font-size: 1.05rem; }
+    .admin-form { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: .65rem; }
+    .admin-form .wide { grid-column: 1 / -1; }
+    .admin-list { display: grid; gap: .65rem; margin: .8rem 0 0; padding: 0; list-style: none; }
+    .admin-item { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid #e5e9e2; border-radius: .7rem; padding: .75rem; overflow-wrap: anywhere; }
+    .admin-item a { color: #315c42; font-weight: 650; }
+    .admin-item-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .admin-status { min-height: 1.4rem; margin-top: .6rem; color: #667067; font-size: .85rem; }
+    .admin-error { color: #a33e35; }
+    .admin-tools { margin: .5rem 0 0; padding-left: 1.2rem; color: #5b665c; font-size: .87rem; }
     .composer { border-top: 1px solid #edf0ea; padding: .8rem; }
     .composer textarea { min-height: 78px; resize: vertical; border-color: transparent; background: #f7f8f5; }
     .composer-footer { display: flex; justify-content: space-between; align-items: center; gap: .8rem; padding: .5rem .1rem 0; }
@@ -52,6 +69,10 @@ export const appStyles = String.raw`
       .topbar { align-items: stretch; flex-direction: column; gap: 1rem; }
       .room-controls { grid-template-columns: 1fr 1fr; }
       .room-controls button { grid-column: span 2; }
+      .admin-form { grid-template-columns: 1fr; }
+      .admin-form .wide { grid-column: auto; }
+      .admin-item { align-items: stretch; flex-direction: column; }
+      .admin-item-actions button { flex: 1; }
       .chat { min-height: 72vh; }
       .messages { padding: .8rem; }
       .message { max-width: 92%; }

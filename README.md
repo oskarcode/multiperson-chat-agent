@@ -1,65 +1,82 @@
 # MultiPerson Chat with Agent
 
-A small, public group-chat demo for Cloudflare Workers. People who use the same room ID share a chat; each room has its own SQLite-backed Durable Object and Pi Durable conversation. Send messages to the room, ask the agent for help, watch its progress stream into the browser, and let it schedule reminders or follow-ups.
+A small Cloudflare Workers demo for shareable group-chat workspaces. An admin creates a workspace and shares its URL; anyone with that link can join without signing in. Each workspace has its own SQLite-backed `ChatRoom` Durable Object and Pi Durable conversation. The agent can answer, stream its activity, schedule reminders and follow-ups, and use one public MCP server shared by all workspaces.
 
-This is a learning/demo starter, not an authenticated chat product. Anyone who knows a room ID can read and post in that room. Add your own authentication and authorization layer before using it for private conversations.
+This is a demo, not an authenticated chat product. A workspace URL is a bearer link: anyone who has it can read and post. The admin area is separately protected by one Worker secret.
 
 ## Demo flow
 
-1. Open the Worker URL, choose a display name, and use a room ID such as `lobby`.
-2. Share the same room ID with other people to chat together. Choose another ID to start a separate room/session.
-3. Use **Send to group** for a normal message or **Ask Agent** to submit a question to the room's Pi Durable conversation.
-4. Watch the agent's partial answer and tool progress arrive over the live room stream.
-5. Ask the agent to schedule a reminder. Pi Durable stores the task, and the room Durable Object wakes when it is due.
-6. Optionally configure a public MCP server with `MCP_URL`; the agent can discover and call its tools.
+1. Open `/admin`, enter the admin secret, and create a named workspace.
+2. Copy its `/w/<id>` link and share it with guests. Guests do not need accounts or a secret.
+3. Chat together or ask the workspace agent for help. The agent's partial answer and tool activity stream into the collapsible **Live agent activity** panel.
+4. Optionally connect one public Streamable HTTP MCP endpoint in the admin UI. Its discovered tools become available in every workspace.
+5. Ask the agent to schedule a reminder. Pi Durable stores the task and the room Durable Object wakes when it is due.
 
 ## Run locally
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm admin:secret
 pnpm exec wrangler dev
 ```
 
-The Workers AI binding is configured in `wrangler.jsonc`. The default model is `@cf/zai-org/glm-4.7-flash`. Agent requests made during local development still call Workers AI remotely and may incur usage charges; authenticate Wrangler with an account that can use Workers AI. To test a public, unauthenticated Streamable HTTP MCP server, set `MCP_URL` in `wrangler.jsonc` to its HTTPS endpoint. The UI will show the tools advertised by that server. MCP OAuth is not included.
+`pnpm admin:secret` creates a random local `ADMIN_SECRET` in the ignored `.dev.vars` file and never prints its value. Read that file locally to unlock `/admin`. The deploy helper also creates this local secret if needed and provisions the same value to Cloudflare. Do not commit or share `.dev.vars`.
+
+Workers AI is configured in `wrangler.jsonc` with default model `@cf/zai-org/glm-4.7-flash`. Agent calls during local development still use Cloudflare Workers AI remotely and may incur usage charges.
 
 ## How it works
 
 ```text
-Browser
-  -> Worker routes and serves the no-build UI
-  -> ROOMS.getByName(roomId)
-  -> one ChatRoom Durable Object per room
-       -> Pi Durable Harness and one room conversation
-       -> chat entries, agent entries, live partials, reminders, follow-ups
-       -> Durable Object alarm wakes Pi Durable tasks
-       -> optional MCP client calls the configured public server
-  -> Workers AI
+Admin browser
+  -> Worker checks ADMIN_SECRET
+  -> DemoAdmin Durable Object
+       -> workspace index and global MCP URL
+       -> creates a random workspace ID and initializes its ChatRoom
+
+Guest browser -> /w/<workspace-id> (public share link)
+  -> Worker routes to ROOMS.getByName(workspace-id)
+  -> ChatRoom Durable Object per workspace
+       -> workspace metadata, Pi Durable Harness, and one conversation
+       -> group messages, agent turns, schedules, follow-ups, and SSE snapshots
+       -> reads the shared MCP URL from DemoAdmin
+  -> Workers AI and optional public Streamable HTTP MCP server
 ```
 
-- `src/index.ts` — small Worker router for the page and room API.
-- `src/session/chat-room.ts` — room Durable Object; owns the Pi Durable Harness, room chat, MCP capability, follow-up monitor, and alarm entrypoint.
-- `src/session/harness.ts` — Workers AI provider, prompt sections, Pi tools, and task registration.
-- `src/session/transcript.ts` — projects Pi Durable entries and live generation/tool state into a browser snapshot.
-- `src/session/schedule-task.ts` and `src/session/schedule-tools.ts` — Pi Durable reminder task plus schedule/list/cancel tools.
-- `src/session/follow-up-classifier.ts` and `src/session/follow-up-task.ts` — classify open group-chat turns, schedule a follow-up, and submit it to the same conversation. A newer group message makes older candidates stale.
-- `src/session/capability-tools.ts` and `src/integrations/mcp.ts` — agent tool for the configured MCP server and its Streamable HTTP client.
-- `src/ui/` — plain HTML, CSS, and browser JavaScript; no frontend build step.
+- `src/index.ts` — public workspace routes and admin-secret-guarded API.
+- `src/admin/demo-admin.ts` — workspace index and one global MCP configuration in a singleton Durable Object.
+- `src/session/chat-room.ts` — one workspace Durable Object; owns that workspace's Harness, conversation, transcript, tasks, and alarm lifecycle.
+- `src/session/workspace-info.ts` — workspace ID/title/timestamp stored in the Pi Durable conversation state.
+- `src/session/harness.ts` — Workers AI provider, prompt, Pi tools, and durable task registration.
+- `src/session/transcript.ts` — projects Pi Durable entries and `pi.live` state into browser snapshots.
+- `src/session/schedule-task.ts` and `src/session/schedule-tools.ts` — Pi-native reminder tools and task delivery.
+- `src/session/follow-up-classifier.ts` and `src/session/follow-up-task.ts` — classify open turns, cancel stale candidates, and deliver follow-ups.
+- `src/integrations/mcp.ts` — public HTTPS Streamable HTTP MCP client.
+- `src/ui/` — no-build chat and admin pages with browser JavaScript.
 - `worker-configuration.d.ts` — Wrangler-generated binding types.
 
-### Streaming
+### Agent streaming
 
-The room Durable Object watches the Pi Durable conversation and returns SSE snapshots. Each snapshot contains the visible transcript and current Pi `pi.live` state. The browser renders partial assistant text and tool activity; a reconnect starts from the current snapshot.
+The workspace Durable Object watches the Pi Durable conversation and forwards snapshots over SSE. The browser renders partial assistant text and tool state in the collapsible activity panel as the agent runs; reconnecting receives a current snapshot.
 
-### Scheduling and automatic follow-up
+### MCP configuration
 
-The `schedule`, `list_schedules`, and `cancel_schedule` Pi tools create and manage Pi Durable tasks. A due reminder submits a new input to the room conversation; it is not a separate reply loop. The follow-up monitor observes group messages, classifies whether an open turn needs a later check-in, and schedules a Pi Durable task. New messages invalidate stale candidates. Durable Object alarms wake the room to run due tasks.
+The admin UI connects and tests one public HTTPS Streamable HTTP MCP server, then saves the endpoint globally for all workspaces. Guests can see the advertised tools and the agent can call them. OAuth, private endpoints, and saved credentials are not supported. The admin secret is required to change this outbound destination.
 
 ## API
 
-- `GET /api/rooms/:roomId/messages` — current projected transcript.
-- `GET /api/rooms/:roomId/events` — SSE transcript and agent progress stream.
-- `POST /api/rooms/:roomId/messages` — send a group message or queue an agent request (`target: "agent"`).
-- `GET /api/rooms/:roomId/mcp` — discover tools from the configured MCP endpoint.
+Public, link-based guest routes:
+
+- `GET /w/:workspaceId` — chat UI for a created workspace.
+- `GET /api/workspaces/:workspaceId/messages` — current transcript.
+- `GET /api/workspaces/:workspaceId/events` — SSE transcript and agent progress.
+- `POST /api/workspaces/:workspaceId/messages` — post to the group or queue an agent request.
+- `GET /api/workspaces/:workspaceId/mcp` — shared MCP tool status.
+
+Admin routes require `Authorization: Bearer <ADMIN_SECRET>`:
+
+- `GET /api/admin/state` — list workspaces and current global MCP status.
+- `POST /api/admin/workspaces` — create and initialize a named workspace.
+- `PUT /api/admin/mcp` — connect/test a public endpoint, or disconnect with an empty URL.
 
 ## Checks
 
@@ -68,20 +85,18 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-`pnpm check` verifies generated types, TypeScript, unit tests, Wrangler packaging, room behavior, and the deploy helper. The browser test covers shared rooms, room isolation, live updates, and the mobile layout. Mocked tests do not prove that a real Workers AI model or public MCP server is reachable; test those integrations separately before relying on them.
+Checks cover admin-secret gating, workspace creation and state, public guest sharing, room isolation, SSE, activity-panel rendering, MCP URL validation, Pi agent/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding and do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
 
 ## Deploy
-
-After approving the account and Worker name, use:
 
 ```sh
 pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes
 ```
 
-The helper verifies the selected Wrangler account, runs `pnpm check`, deploys, and checks the chat page. It does not create an application secret because this demo has no sign-in flow.
+The helper verifies the Wrangler account, runs checks, deploys, and smoke-checks the chat page. It stores a random admin secret in ignored `.dev.vars` if one is not already there, then uploads it as the Worker secret `ADMIN_SECRET` if the deployed Worker does not already have that secret. Open `<Worker URL>/admin` and read the local `.dev.vars` value to unlock the admin UI; the secret is never printed by the helper.
 
-**Storage note:** `wrangler.jsonc` retires the old `MultiPersonChat` and `PiSession` classes and declares the new `ChatRoom` class. Deploying this configuration permanently deletes the old Durable Object namespaces and their data. This is intentional for this demo refactor; do not reuse the old classes' data.
+The prior deployment already retired the old `MultiPersonChat` and `PiSession` classes. This change keeps the deployed `ChatRoom` class and adds `DemoAdmin`; existing ChatRoom data is not migrated or reset by this change.
 
 ## Production boundary
 
-This demo has no app authentication, memberships, private rooms, rate limiting, or full abuse controls. Room IDs are public names, not access tokens. `MCP_URL` is set by the Worker owner rather than entered by anonymous visitors, and the starter expects a public HTTPS MCP endpoint. Do not use the deployed demo for private or sensitive conversations without adding your own identity, authorization, and abuse-control layer.
+There is no guest authentication, workspace membership, or private-room ACL. The share URL grants read/write access. Protect the single admin secret, and rotate it if it is exposed. Public HTTPS MCP endpoints and their tools are shared with every guest workspace. Add identity, authorization, rate limits, and abuse controls before using this demo for sensitive or production traffic.

@@ -30,8 +30,12 @@ describe("demo architecture", () => {
       durable_objects: { bindings: { name: string; class_name: string }[] };
       exports: Record<string, { state?: string; storage?: string }>;
     };
-    expect(wrangler.durable_objects.bindings).toEqual([{ name: "ROOMS", class_name: "ChatRoom" }]);
+    expect(wrangler.durable_objects.bindings).toEqual([
+      { name: "ROOMS", class_name: "ChatRoom" },
+      { name: "ADMIN", class_name: "DemoAdmin" },
+    ]);
     expect(wrangler.exports.ChatRoom.storage).toBe("sqlite");
+    expect(wrangler.exports.DemoAdmin.storage).toBe("sqlite");
     expect(wrangler.exports.MultiPersonChat.state).toBe("deleted");
     expect(wrangler.exports.PiSession.state).toBe("deleted");
   });
@@ -42,5 +46,7 @@ describe("demo architecture", () => {
     expect(room).toContain("watch.start");
     expect(readFileSync("src/index.ts", "utf8")).toContain("text/event-stream");
     expect(readFileSync("src/session/transcript.ts", "utf8")).toContain('view.docs["pi.live"]');
+    expect(readFileSync("src/ui/page.ts", "utf8")).toContain('id="activityPanel"');
+    expect(readFileSync("src/admin/demo-admin.ts", "utf8")).toContain("createWorkspace");
   });
 });

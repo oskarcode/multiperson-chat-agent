@@ -4,13 +4,14 @@ import { Harness, type Conversation, type HarnessInspection, type Submission, ty
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Env } from "../platform-env";
-import type { ChatMessage, McpToolSummary, RoomSnapshot, Schedule } from "../protocol/chat";
+import type { ChatMessage, McpToolSummary, RoomSnapshot, Schedule, WorkspaceInfo } from "../protocol/chat";
 import { callMcpTool, listMcpTools } from "../integrations/mcp";
 import { DEFAULT_WORKERS_AI_MODEL } from "../agent/models";
 import { messageNeedsFollowUp } from "./follow-up-classifier";
 import { DeliverProactiveFollowUp, FollowUpCursor, type ProactiveFollowUpInput } from "./follow-up-task";
 import { createStarterHarnessOptions } from "./harness";
 import { RoomPromptContext } from "./room-context";
+import { WorkspaceInfoDocument } from "./workspace-info";
 import { DeliverScheduledInstruction, type PiScheduledInstruction } from "./schedule-task";
 import { snapshotFromView, messagesFromEntries, promptContext } from "./transcript";
 
@@ -39,20 +40,44 @@ export class ChatRoom extends DurableObject<Env> {
     return messagesFromEntries((await root.context(BACKGROUND_CONTEXT)).entries);
   }
 
+  async initializeWorkspace(workspace: WorkspaceInfo): Promise<WorkspaceInfo> {
+    return this.#serialize(async () => {
+      const harness = await this.#ready;
+      return harness.commit(async (tx) => {
+        const info = await tx.doc(WorkspaceInfoDocument);
+        if (!info.id) {
+          info.id = workspace.id;
+          info.title = workspace.title;
+          info.createdAt = workspace.createdAt;
+        }
+        return { id: info.id, title: info.title, createdAt: info.createdAt };
+      }, BACKGROUND_CONTEXT);
+    });
+  }
+
+  async getWorkspace(): Promise<WorkspaceInfo | null> {
+    const state = await (await this.#ready).commit(async (tx) => {
+      const info = await tx.doc(WorkspaceInfoDocument);
+      return { id: info.id, title: info.title, createdAt: info.createdAt };
+    }, BACKGROUND_CONTEXT);
+    return state.id ? state : null;
+  }
+
   /** Stream an initial room snapshot and every committed Pi Durable conversation update as SSE frames. */
   async watch(): Promise<ReadableStream<Uint8Array>> {
     const harness = await this.#ready;
     const root = await harness.root(BACKGROUND_CONTEXT);
+    const workspaceInfo = await this.getWorkspace();
     const watch = await root.watch(BACKGROUND_CONTEXT);
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     return new ReadableStream<Uint8Array>({
       type: "bytes",
       start: (controller) => {
         try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshotFromView(watch.value))}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshotFromView(watch.value, workspaceInfo))}\n\n`));
           watch.start(async (view) => {
             try {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshotFromView(view))}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshotFromView(view, workspaceInfo))}\n\n`));
             } catch {
               await watch.stop();
             }
@@ -123,7 +148,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async mcpStatus(): Promise<McpStatus> {
-    const url = this.env.MCP_URL?.trim();
+    const url = await this.#getMcpUrl();
     if (!url) return { configured: false, tools: [] };
     try {
       return { configured: true, tools: await this.#getMcpTools(true) };
@@ -147,8 +172,8 @@ export class ChatRoom extends DurableObject<Env> {
     const capabilities = {
       listMcpTools: () => this.#getMcpTools(),
       callMcpTool: async (input: { toolName: string; args: Record<string, unknown> }) => {
-        const url = this.env.MCP_URL?.trim();
-        if (!url) throw new Error("No MCP_URL is configured on the Worker.");
+        const url = await this.#getMcpUrl();
+        if (!url) throw new Error("No shared MCP server is configured by the admin.");
         if (!(await this.#getMcpTools()).some((tool) => tool.name === input.toolName)) throw new Error("That tool is not advertised by the configured MCP server.");
         return callMcpTool(url, input.toolName, input.args);
       },
@@ -163,12 +188,14 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async #updatePromptContext(root: Conversation, extra?: ChatMessage): Promise<void> {
+    const harness = await this.#ready;
     const messages = messagesFromEntries((await root.context(BACKGROUND_CONTEXT)).entries);
     if (extra) messages.push(extra);
     let tools: McpToolSummary[] = [];
     try { tools = await this.#getMcpTools(); }
     catch (error) { this.#log("MCP tool discovery failed; continuing without MCP", error); }
-    const contextText = promptContext(messages, tools);
+    const workspace = await harness.commit(async (tx) => ({ title: (await tx.doc(WorkspaceInfoDocument)).title }), BACKGROUND_CONTEXT);
+    const contextText = promptContext(messages, tools, workspace.title);
     await (await this.#ready).commit(async (tx) => {
       const doc = await tx.doc(RoomPromptContext);
       doc.text = contextText;
@@ -242,8 +269,12 @@ export class ChatRoom extends DurableObject<Env> {
     return cancelled === "marked";
   }
 
+  async #getMcpUrl(): Promise<string> {
+    return this.env.ADMIN.getByName("global").getMcpUrl();
+  }
+
   async #getMcpTools(refresh = false): Promise<McpToolSummary[]> {
-    const url = this.env.MCP_URL?.trim();
+    const url = await this.#getMcpUrl();
     if (!url) return [];
     if (!refresh && this.#mcpCache?.url === url && this.#mcpCache.expiresAt > Date.now()) return this.#mcpCache.tools;
     const tools = (await listMcpTools(url)).map((tool) => ({

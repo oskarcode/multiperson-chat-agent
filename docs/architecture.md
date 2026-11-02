@@ -1,64 +1,60 @@
 # Architecture
 
-This demo keeps the request path short: one Worker, one room Durable Object per room ID, and one Pi Durable conversation in each room.
+The demo has one admin/control Durable Object for workspace discovery and global MCP configuration, plus one SQLite-backed `ChatRoom` Durable Object per created workspace. Guest traffic is public and uses the workspace share URL as its bearer link.
 
-## Runtime path
+## Runtime paths
 
 ```text
-Browser
-  -> src/index.ts (native Worker router and static page)
-  -> env.ROOMS.getByName(roomId)
+Admin browser
+  -> Worker /admin + /api/admin/*
+  -> ADMIN_SECRET checked in the Worker
+  -> singleton DemoAdmin Durable Object
+       -> workspace index and shared MCP URL
+       -> creates a random workspace ID and calls ChatRoom.initializeWorkspace()
+
+Guest browser -> /w/<workspaceId>
+  -> Worker /api/workspaces/<workspaceId>/*
+  -> ROOMS.getByName(workspaceId)
   -> ChatRoom Durable Object
        -> Pi Durable Harness over this object's SQLite storage
-       -> one root conversation for the room
-       -> Pi-native schedule and follow-up tasks
-       -> optional configured MCP client
-  -> Workers AI
+       -> one root conversation plus workspace metadata
+       -> chat, agent turns, schedule/follow-up tasks, alarms, SSE watch
+       -> reads the global MCP URL from DemoAdmin
+  -> Workers AI and optional public MCP server
 ```
 
-The same room ID always maps to the same `ChatRoom` Durable Object. People who share the ID share the chat and agent conversation; a different ID gives them a separate room/session. There is no global room catalog or second transcript database.
+A workspace's random ID maps deterministically to one `ChatRoom`, so its group transcript, agent state, scheduled work, and `WorkspaceInfoDocument` stay together. The singleton `DemoAdmin` contains the index needed to list/create share links and one MCP URL shared across every workspace. It does not hold workspace transcripts or Harness sessions.
 
-## State and agent ownership
+## Agent and streaming ownership
 
-Pi Durable is the source of truth for the room transcript and agent runtime:
+Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. `ChatRoom` adapts public chat actions into Pi Durable entries/inputs and projects each watched view into an SSE snapshot. The browser renders partial assistant text and tool calls/results in a collapsible activity panel; the same partial text is also visible in the transcript.
 
-- Normal group messages are passive application entries in the room conversation; they do not trigger a model turn.
-- **Ask Agent** submits a Pi Durable input. Pi AI invokes the configured Workers AI model and Pi Durable owns tools, retries, and the final assistant entry.
-- Scheduled reminders and proactive follow-ups are durable Pi tasks. When due, each submits an instruction to the same conversation.
-- A newer group message advances the follow-up cursor, making an older candidate stale. Durable Object alarms wake the room to run due Pi tasks.
-- The UI watches committed Pi Durable conversation snapshots. Partial assistant text and tool execution state come from `pi.live` and are forwarded to the browser over SSE.
+Normal group messages are passive entries; **Ask Agent** submits an input to the same workspace conversation. `schedule`, `list_schedules`, and `cancel_schedule` are Pi tools. Due reminders and proactive follow-ups submit inputs into that conversation. Newer group messages invalidate older follow-up candidates. Durable Object alarms wake the Harness for due tasks.
 
-`ChatRoom` owns the room lifecycle and adapts application actions to the Harness. It does not implement a second agent loop, message table, schedule engine, or progress-diff protocol.
+## Admin and guest access
 
-## MCP
+The admin page at `/admin` sends a bearer `ADMIN_SECRET` header to admin APIs. The secret is held as a Wrangler Worker secret and is never returned by the Worker. The browser keeps the entered secret only for that tab's `sessionStorage` session. Workspace chat APIs intentionally require no auth: possession of the random share URL grants read/write access.
 
-The optional MCP server is configured by the Worker owner using `MCP_URL`. The room exposes its discovered tool names to the prompt and registers one Pi tool, `call_mcp_tool`, which only calls a tool advertised by that server. The initial demo supports public HTTPS Streamable HTTP servers without OAuth. There is no public UI for choosing an arbitrary URL: room IDs and messages are public, so exposing URL configuration to visitors would also expose outbound network calls.
+The Worker verifies a workspace ID is in the admin index before serving `/w/:id` or the `/api/workspaces/:id/*` routes. The legacy `/api/rooms/:id/*` routes remain for old query-style demo access. This is a demo gate, not a full account/ACL system.
 
-## HTTP and UI
+## Shared MCP
 
-`src/index.ts` has four concerns only:
-
-1. Serve the no-build HTML page.
-2. Route room message reads/writes to the named Durable Object.
-3. Return its live conversation watch as an SSE response.
-4. Report MCP tools configured for the Worker.
-
-The browser stores a display name and selected room ID locally. It opens one `EventSource` per room and renders transcript snapshots, partial responses, and tool activity. There is no login, member catalog, invite system, settings panel, or frontend framework.
-
-## Durable Object lifecycle
-
-`wrangler.jsonc` binds `ROOMS` to `ChatRoom` and declares SQLite storage. `worker-configuration.d.ts` is generated from that config by Wrangler. Each room instance opens Pi Durable storage from its Durable Object SQLite storage, resumes tasks, and sets the next alarm from pending reminder/follow-up deadlines.
-
-The config tombstones the old `MultiPersonChat` and `PiSession` classes. Deploying this change deletes their namespaces and data; the demo owner confirmed that data preservation is not needed. No remote deployment was run as part of the refactor/commit.
+`DemoAdmin` stores one global MCP URL, which all workspace objects read. The admin form validates the destination and discovers its tools before saving it. The initial feature accepts only public HTTPS Streamable HTTP endpoints without OAuth or stored credentials. Guests can see advertised tool names, and the Pi agent can call only a tool discovered from that shared server. Admin-only configuration prevents anonymous users from turning the Worker into an arbitrary outbound request proxy.
 
 ## Main files
 
-- `src/index.ts` — Worker routing and page response.
-- `src/session/chat-room.ts` — one room/session Durable Object; messages, room context, Pi task lifecycle, alarms, and the stream adapter.
-- `src/session/harness.ts` — Pi AI Workers AI provider, prompt, tools, and task registration.
-- `src/session/transcript.ts` — Pi entries/live state to browser snapshot projection and model room context.
-- `src/session/schedule-task.ts` and `src/session/schedule-tools.ts` — durable reminder delivery and agent tools.
-- `src/session/follow-up-classifier.ts` and `src/session/follow-up-task.ts` — candidate classification, stale detection, and durable delivery.
-- `src/session/capability-tools.ts` and `src/integrations/mcp.ts` — MCP Pi tool and protocol client.
-- `src/ui/` — page markup, styles, and browser client.
+- `src/index.ts` — routing, workspace lookup, admin secret validation, and streamed HTTP response.
+- `src/admin/demo-admin.ts` — global MCP URL and workspace index; creates each workspace DO.
+- `src/session/chat-room.ts` — workspace state, Pi Durable conversation, tasks, MCP calls, and SSE watch.
+- `src/session/workspace-info.ts` — workspace metadata in Pi Durable state.
+- `src/session/harness.ts` — Workers AI model, prompt sections, tools, and durable task registrations.
+- `src/session/transcript.ts` — Pi entries/`pi.live` projection and room prompt context.
+- `src/session/schedule-task.ts`, `src/session/schedule-tools.ts` — durable reminders.
+- `src/session/follow-up-classifier.ts`, `src/session/follow-up-task.ts` — proactive follow-ups.
+- `src/integrations/mcp.ts` — public Streamable HTTP MCP client.
+- `src/ui/` — no-build guest chat, live activity panel, and secret-gated admin page.
 - `worker-configuration.d.ts` — generated Worker binding types.
+
+## Deployment and data
+
+`wrangler.jsonc` keeps `ChatRoom` and adds SQLite-backed `DemoAdmin`. The old `MultiPersonChat` and `PiSession` class deletions were deployed in the preceding refactor. This change does not tombstone or replace `ChatRoom`; workspace metadata is added to its Pi Durable conversation. No deployment data reset is intended.

@@ -4,39 +4,40 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 
 ## Demo contract
 
-- One Cloudflare Worker serves the no-build browser UI and API.
-- One SQLite-backed `ChatRoom` Durable Object is created per room ID. People using the same ID share a room; different IDs have independent transcripts and Pi Durable conversations.
-- Group messages, Ask Agent requests, assistant replies, reminders, and progress are stored/projected from the Pi Durable conversation. Do not add a second transcript store.
-- Pi Durable/Pi AI owns model turns, tool execution, durable scheduled reminders, automatic follow-up tasks, recovery, and the authoritative conversation history.
-- Workers AI is the only model provider. The default model is configured in Wrangler; do not add model-provider settings or credentials.
-- The browser receives committed room snapshots over SSE from Pi Durable conversation watches. Preserve partial assistant text and tool progress in the streamed UI.
-- An optional public, unauthenticated Streamable HTTP MCP server is configured by the Worker owner through `MCP_URL`. Keep MCP discover/call behavior, but do not add an unauthenticated UI that accepts arbitrary server URLs. The starter only supports a public HTTPS endpoint; OAuth is out of scope.
-- There is deliberately no app authentication, membership, invite, role, admin, skills, settings, or schedule calendar. Room IDs are public; make that demo-only limitation clear.
+- One Worker serves the no-build guest UI, admin UI, and APIs.
+- Admin operations require the Worker secret `ADMIN_SECRET`; guests do not authenticate. A guest share URL is a bearer link that grants read/write access to that workspace.
+- `DemoAdmin` is a singleton Durable Object for the workspace index and one globally shared MCP endpoint. Do not put chat transcripts or Pi sessions in it.
+- Each created workspace ID maps to one SQLite-backed `ChatRoom` Durable Object. That object owns workspace metadata, the room transcript, and its independent Pi Durable Harness/conversation.
+- Group messages, Ask Agent requests, assistant replies, reminders, and progress are stored/projected from Pi Durable. Do not add a second transcript store.
+- Pi Durable/Pi AI owns model turns, tool execution, durable reminder/follow-up tasks, recovery, and authoritative conversation history. Workers AI is the only model provider.
+- The browser receives committed conversation snapshots over SSE from Pi Durable conversation watches. Preserve partial assistant text and tool activity in the collapsible live activity panel.
+- One public HTTPS Streamable HTTP MCP endpoint is configured by the admin and shared by all workspaces. Keep tool discovery and invocation, but do not let guests choose outbound URLs. OAuth, private MCP endpoints, and stored credentials are out of scope.
+- There are no guest accounts, workspace ACLs, memberships, invite/role systems, Anthropic credentials, model settings, skills management, or schedule calendar. Make these limits clear.
 
 ## Keep the code easy to teach
 
-- Prefer direct Worker routing for the few APIs and typed Durable Object RPC over Hono and duplicate RPC interfaces.
-- Keep one obvious room/session owner. Avoid reintroducing a global app-state Durable Object, another chat transcript table, or forwarding-only abstractions.
+- Prefer direct Worker routing for the small API surface and typed Durable Object RPC; do not reintroduce Hono or duplicate RPC interfaces.
+- Keep one obvious state owner per domain: `DemoAdmin` for the small global workspace/MCP index, `ChatRoom` for each workspace's application state and Pi Durable session.
 - Use Pi Durable primitives for agent, task, transcript, and progress behavior. Do not implement a custom agent loop or custom event-diff protocol.
-- Retain basic message/room checks needed for predictable behavior and HTTPS/public-host checks for the operator-configured MCP endpoint. Removing app login does not mean accepting arbitrary outbound network targets.
-- Update `README.md` and `docs/architecture.md` in the same change as architecture behavior. Documentation must describe code that exists.
+- Validate workspace IDs and MCP URLs. Admin endpoints must fail closed without `ADMIN_SECRET`; never put it in Wrangler `vars`, logs, URLs, or browser localStorage.
+- Keep admin secret values only in ignored `.dev.vars` locally and Wrangler secrets remotely. Never print or commit them.
+- Update `README.md` and `docs/architecture.md` with architecture behavior in the same change.
 
 ## Storage and deployment changes
 
-- The old `MultiPersonChat` and `PiSession` Durable Object classes are explicitly tombstoned in `wrangler.jsonc`; deploying that change deletes their old namespaces and data. The owner has said that data need not be preserved for this demo refactor.
-- Do not deploy, publish, or reset remote resources unless the user explicitly asks. This task's requested commit does not authorize a deployment.
-- `MCP_URL`, `AI_MODEL`, and `AI_GATEWAY_ID` are non-secret Worker vars. Do not add API keys or credentials to source/config.
-- Keep `worker-configuration.d.ts` generated by Wrangler. After changing Wrangler bindings/vars, run `pnpm types`; `pnpm check` verifies the generated file is current.
-- The deploy helper requires an explicit account, Worker name, and `--yes`; preserve this target-confirmation guard.
+- Existing `ChatRoom` Durable Object state must be preserved when adding workspace metadata. Do not rename/tombstone this class or reset its namespace.
+- The previous refactor already retired `MultiPersonChat` and `PiSession`; those old namespaces/data were deleted on deployment.
+- Do not deploy, publish, or reset remote resources unless the user explicitly asks. This task's explicit deploy request does authorize the requested Worker deployment.
+- `MCP_URL`, `AI_MODEL`, and `AI_GATEWAY_ID` are non-secret Worker vars. Do not add provider credentials to source/config.
+- `worker-configuration.d.ts` is generated by Wrangler. After changing bindings/vars, run `pnpm types`; `pnpm check` verifies it is current.
+- Preserve the deploy helper's explicit account, Worker name, and `--yes` target guard. It may provision the random `ADMIN_SECRET` from ignored `.dev.vars`; never emit the value.
 
 ## Verification
 
-Run `pnpm check` after implementation changes and `node scripts/test-browser.mjs` (or `pnpm test:browser`, which runs the check first) for UI changes. Tests should cover:
+Run `pnpm check` and `node scripts/test-browser.mjs` (or `pnpm test:browser`) after changes. Cover:
 
-- two people sharing the same room ID;
-- different room IDs isolating their conversation;
-- Pi Durable agent turns and streamed partial progress;
-- due reminder delivery and automatic follow-up/stale-candidate behavior;
-- public MCP tool discovery and invocation through the Pi tool.
+- admin-secret protection, workspace creation/index/share URL, public guest joins, and workspace isolation;
+- Pi Durable agent turns, partial progress in the activity panel, and MCP tool registration;
+- scheduled reminder delivery, automatic follow-up/stale candidates, and global MCP validation/configuration.
 
-Report local/mocked checks separately from real Workers AI, timed delivery, or public MCP integration checks. Never claim a real integration was exercised if only a mock was used.
+Report mocked tests separately from live Workers AI, timed delivery, and public MCP tests. Do not claim live integrations were tested unless they were.

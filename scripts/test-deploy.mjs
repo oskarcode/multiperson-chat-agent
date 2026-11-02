@@ -39,10 +39,16 @@ test('demo deploy verifies the account and deploys without application secrets',
     const log = readFileSync('calls.jsonl', 'utf8').trim().split('\n').map(JSON.parse);
     const check = log.find(call => call.args.includes('check'));
     const deployed = log.find(call => call.args.includes('deploy'));
+    const secretPut = log.find(call => call.args.includes('put') && call.args.includes('ADMIN_SECRET'));
     assert.ok(check);
     assert.ok(deployed.args.includes('--keep-vars'));
     assert.equal(deployed.account, account);
     assert.equal(deployed.args.includes('--secrets-file'), false);
+    assert.ok(secretPut);
+    assert.ok(log.indexOf(secretPut) > log.indexOf(deployed));
+    const localSecret = readFileSync('.dev.vars', 'utf8').match(/^ADMIN_SECRET=(.+)$/m)?.[1];
+    assert.match(localSecret || '', /^[A-Za-z0-9_-]{40,}$/u);
+    assert.equal(readFileSync('calls.jsonl', 'utf8').includes(localSecret), false);
     assert.equal(calls.length, 2);
     assert.ok(!readFileSync('calls.jsonl', 'utf8').includes('SESSION_SECRET'));
   } finally {
