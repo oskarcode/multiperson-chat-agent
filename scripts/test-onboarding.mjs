@@ -65,13 +65,6 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
       const guest = joins.find(r => r.status === 201);
       assert.equal(guest.data.member.email, null);
       assert.deepEqual((await request(mf, '/api/workspaces', null, guest.cookie)).data.workspaces.map(r => r.id), [groupRoom]);
-      const scheduled = await request(mf, `/api/workspaces/${groupRoom}/messages`, { text: 'help me schedule a to do list later in 5 minutes to take out trash', target: 'agent' }, guest.cookie);
-      assert.equal(scheduled.status, 201);
-      assert.match(scheduled.data.messages.at(-1).text, /Saved to Calendar/);
-      const visibleSchedules = (await request(mf, '/api/schedules', null, guest.cookie)).data.schedules;
-      assert.equal(visibleSchedules.length, 1);
-      assert.equal(visibleSchedules[0].instruction, 'take out trash');
-      assert.equal(visibleSchedules[0].workspaceId, groupRoom);
       assert.equal((await request(mf, '/api/workspaces', { title: 'Guest room' }, guest.cookie)).status, 403);
       assert.equal((await request(mf, `/api/workspaces/${privateRoom}/messages`, null, guest.cookie)).status, 400);
       const laterRoom = (await request(mf, '/api/workspaces', { title: 'New private room' }, ownerCookie)).data.id;

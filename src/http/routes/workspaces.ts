@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { generateAgentReply } from "../../agent/reply";
-import { parseScheduleRequest, scheduleConfirmation } from "../../agent/schedule-request";
 import { isAdmin, type AppBindings } from "../context";
 import { optionalTextField, requestJson, textField } from "../input";
 import { requireAuth } from "../session";
@@ -39,14 +38,8 @@ workspaceRoutes.post("/:workspaceId/messages", async (c) => {
   });
   const messages = [message];
   if (target === "agent") {
-    const schedule = parseScheduleRequest(textField(body, "text"));
-    if (schedule !== null) {
-      await chat.createSchedule({ actorId: member.id, workspaceId, instruction: schedule.instruction, runAt: schedule.runAt });
-      messages.push(await chat.appendAgentMessage({ workspaceId, text: scheduleConfirmation(schedule.instruction, schedule.runAt) }));
-    } else {
-      const reply = await generateAgentReply(c.env, chat, member.id, workspaceId);
-      messages.push(await chat.appendAgentMessage({ workspaceId, text: reply }));
-    }
+    const reply = await generateAgentReply(c.env, chat, member.id, workspaceId);
+    messages.push(await chat.appendAgentMessage({ workspaceId, text: reply }));
   }
   return c.json({ messages }, 201);
 });
