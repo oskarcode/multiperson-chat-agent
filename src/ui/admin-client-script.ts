@@ -31,18 +31,30 @@ export const adminClientScript = String.raw`
     }
     for (const workspace of workspaces) {
       const item = document.createElement('li'); item.className = 'admin-item';
-      const link = document.createElement('a'); link.href = '/w/' + encodeURIComponent(workspace.id); link.textContent = workspace.title;
+      const link = document.createElement('a'); link.href = '/w/' + encodeURIComponent(workspace.id); link.textContent = workspace.title + (workspace.deleting ? ' (deletion pending)' : '');
       const linkWrap = document.createElement('div');
       const share = location.origin + link.href;
-      const url = document.createElement('div'); url.className = 'muted'; url.textContent = share;
+      const url = document.createElement('div'); url.className = 'muted'; url.textContent = workspace.deleting ? 'Access is disabled. Retry cleanup below.' : share;
       linkWrap.append(link, url);
       const actions = document.createElement('div'); actions.className = 'admin-item-actions';
-      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'secondary'; copy.textContent = 'Copy share URL';
+      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'secondary'; copy.textContent = 'Copy share URL'; copy.disabled = Boolean(workspace.deleting);
       copy.addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(share); status($('workspaceStatus'), 'Share URL copied.'); }
         catch { status($('workspaceStatus'), 'Copy failed; select and copy the URL shown.'); }
       });
-      actions.append(copy); item.append(linkWrap, actions); list.append(item);
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'danger'; remove.textContent = workspace.deleting ? 'Retry deletion' : 'Delete workspace';
+      remove.addEventListener('click', async () => {
+        if (!workspace.deleting && !window.confirm('Permanently delete “' + workspace.title + '”? Its messages, scheduled work, and share link will be removed.')) return;
+        remove.disabled = true;
+        status($('workspaceStatus'), workspace.deleting ? 'Retrying workspace cleanup…' : 'Deleting workspace and stored chat…');
+        try {
+          await api('/api/admin/workspaces/' + encodeURIComponent(workspace.id), { method: 'DELETE' });
+          status($('workspaceStatus'), 'Workspace deleted. Its share link no longer works.');
+        } catch (error) {
+          status($('workspaceStatus'), 'Deletion is incomplete: ' + error.message, true);
+        } finally { await refresh(); }
+      });
+      actions.append(copy, remove); item.append(linkWrap, actions); list.append(item);
     }
   }
   async function refresh() {

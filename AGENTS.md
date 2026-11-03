@@ -9,9 +9,10 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 - `DemoAdmin` is a singleton Durable Object for the workspace index and one globally shared MCP endpoint. Do not put chat transcripts or Pi sessions in it.
 - Guests join from `/w/<id>` share links; show only their editable display name in the guest UI, never an editable workspace-ID field or the ID in chat status.
 - Each created workspace ID maps to one SQLite-backed `ChatRoom` Durable Object. That object owns workspace metadata, the room transcript, and its independent Pi Durable Harness/conversation.
+- Admin deletion must disable the workspace in the global index before cleanup, close the Pi Durable Harness, cancel alarms, clear the room's SQLite data, and retain only a deletion tombstone so stale links cannot recreate it. Keep failed cleanup retryable from the admin list.
 - Group messages, Ask Agent requests, assistant replies, reminders, and progress are stored/projected from Pi Durable. Do not add a second transcript store.
 - Pi Durable/Pi AI owns model turns, tool execution, durable reminder/follow-up tasks, recovery, and authoritative conversation history. Workers AI is the only model provider.
-- The browser receives committed conversation snapshots over SSE from Pi Durable conversation watches. Preserve partial assistant text and tool activity in the collapsible live activity panel.
+- The browser receives committed conversation snapshots over SSE from Pi Durable conversation watches. Keep streamed partial assistant text in the chat transcript; the collapsible live activity panel should show run/response status and tool-call names/statuses, never duplicate response tokens.
 - One public HTTPS Streamable HTTP MCP endpoint is configured by the admin and shared by all workspaces. Keep tool discovery and invocation, but do not let guests choose outbound URLs. OAuth, private MCP endpoints, and stored credentials are out of scope.
 - There are no guest accounts, workspace ACLs, memberships, invite/role systems, Anthropic credentials, model settings, skills management, or schedule calendar. Make these limits clear.
 
@@ -39,7 +40,7 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 Run `pnpm check` and `node scripts/test-browser.mjs` (or `pnpm test:browser`) after changes. Cover:
 
 - admin-secret protection, workspace creation/index/share URL, public guest joins, and workspace isolation;
-- Pi Durable agent turns, partial progress in the activity panel, and MCP tool registration;
+- Pi Durable agent turns, streamed transcript text, status/tool activity panel updates, and MCP tool registration;
 - scheduled reminder delivery, automatic follow-up/stale candidates, and global MCP validation/configuration.
 
 Report mocked tests separately from live Workers AI, timed delivery, and public MCP tests. Do not claim live integrations were tested unless they were.

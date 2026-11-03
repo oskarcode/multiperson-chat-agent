@@ -19,30 +19,39 @@ const encoder = new TextEncoder();
 const ROOT_CONVERSATION_ID = 1 as const;
 const FOLLOW_UP_DELAY_MS = 15 * 60 * 1000;
 const MCP_CACHE_MS = 60_000;
+const DELETED_WORKSPACE_KEY = "workspace-deleted";
 
 type FollowUpInput = Partial<ProactiveFollowUpInput>;
 type McpStatus = { configured: boolean; tools: McpToolSummary[]; error?: string };
 
 /** One named room owns the group transcript and its Pi Durable conversation. */
 export class ChatRoom extends DurableObject<Env> {
-  readonly #ready: Promise<Harness>;
+  readonly #ready: Promise<Harness | undefined>;
   #models: Models | undefined;
   #mcpCache: { url: string; expiresAt: number; tools: McpToolSummary[] } | undefined;
   #writeQueue: Promise<void> = Promise.resolve();
+  #deleted = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.#ready = ctx.blockConcurrencyWhile(() => this.#openHarness());
+    this.#ready = ctx.blockConcurrencyWhile(async () => {
+      if (await ctx.storage.get<boolean>(DELETED_WORKSPACE_KEY)) {
+        this.#deleted = true;
+        return undefined;
+      }
+      return this.#openHarness();
+    });
   }
 
   async getMessages(): Promise<ChatMessage[]> {
-    const root = await (await this.#ready).root(BACKGROUND_CONTEXT);
+    const root = await (await this.#activeHarness()).root(BACKGROUND_CONTEXT);
     return messagesFromEntries((await root.context(BACKGROUND_CONTEXT)).entries);
   }
 
   async initializeWorkspace(workspace: WorkspaceInfo): Promise<WorkspaceInfo> {
+    await this.#assertActive();
     return this.#serialize(async () => {
-      const harness = await this.#ready;
+      const harness = await this.#activeHarness();
       return harness.commit(async (tx) => {
         const info = await tx.doc(WorkspaceInfoDocument);
         if (!info.id) {
@@ -56,7 +65,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async getWorkspace(): Promise<WorkspaceInfo | null> {
-    const state = await (await this.#ready).commit(async (tx) => {
+    const state = await (await this.#activeHarness()).commit(async (tx) => {
       const info = await tx.doc(WorkspaceInfoDocument);
       return { id: info.id, title: info.title, createdAt: info.createdAt };
     }, BACKGROUND_CONTEXT);
@@ -65,7 +74,7 @@ export class ChatRoom extends DurableObject<Env> {
 
   /** Stream an initial room snapshot and every committed Pi Durable conversation update as SSE frames. */
   async watch(): Promise<ReadableStream<Uint8Array>> {
-    const harness = await this.#ready;
+    const harness = await this.#activeHarness();
     const root = await harness.root(BACKGROUND_CONTEXT);
     const workspaceInfo = await this.getWorkspace();
     const watch = await root.watch(BACKGROUND_CONTEXT);
@@ -104,6 +113,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async sendGroupMessage(input: { authorName: string; text: string }): Promise<ChatMessage> {
+    await this.#assertActive();
     const message: ChatMessage = {
       id: crypto.randomUUID(),
       authorName: input.authorName.trim() || "Guest",
@@ -112,7 +122,7 @@ export class ChatRoom extends DurableObject<Env> {
       createdAt: Date.now(),
     };
     await this.#serialize(async () => {
-      const harness = await this.#ready;
+      const harness = await this.#activeHarness();
       const root = await harness.root(BACKGROUND_CONTEXT);
       const submission = await root.submit({
         type: "write",
@@ -126,11 +136,12 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async askAgent(input: { authorName: string; text: string; requestId: string }): Promise<{ requestId: string }> {
+    await this.#assertActive();
     const authorName = input.authorName.trim() || "Guest";
     const text = input.text.trim();
     const requestId = input.requestId || crypto.randomUUID();
     await this.#serialize(async () => {
-      const harness = await this.#ready;
+      const harness = await this.#activeHarness();
       const root = await harness.root(BACKGROUND_CONTEXT);
       const ask: ChatMessage = { id: requestId, authorName, kind: "agent-request", text, createdAt: Date.now() };
       await this.#advanceFollowUpRevision();
@@ -149,6 +160,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async mcpStatus(): Promise<McpStatus> {
+    await this.#assertActive();
     const url = await this.#getMcpUrl();
     if (!url) return { configured: false, tools: [] };
     try {
@@ -158,11 +170,41 @@ export class ChatRoom extends DurableObject<Env> {
     }
   }
 
+  async deleteWorkspace(): Promise<void> {
+    this.#deleted = true;
+    await this.#serialize(async () => {
+      if (await this.ctx.storage.get<boolean>(DELETED_WORKSPACE_KEY)) {
+        await this.ctx.storage.deleteAlarm();
+        return;
+      }
+      const harness = await this.#ready;
+      if (harness) await harness.close(BACKGROUND_CONTEXT);
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.put(DELETED_WORKSPACE_KEY, true);
+    });
+  }
+
   async alarm(): Promise<void> {
-    const harness = await this.#ready;
+    const harness = await this.#activeHarness();
     harness.resume();
     await harness.waitForIdle(BACKGROUND_CONTEXT);
     await this.#refreshWakeupAlarm(harness);
+  }
+
+  async #assertActive(): Promise<void> {
+    if (this.#deleted || await this.ctx.storage.get<boolean>(DELETED_WORKSPACE_KEY)) {
+      this.#deleted = true;
+      throw new Error("Workspace has been deleted.");
+    }
+  }
+
+  async #activeHarness(): Promise<Harness> {
+    await this.#assertActive();
+    const harness = await this.#ready;
+    if (!harness) throw new Error("Workspace has been deleted.");
+    return harness;
   }
 
   async #openHarness(): Promise<Harness> {
@@ -189,22 +231,23 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async #updatePromptContext(root: Conversation, extra?: ChatMessage): Promise<void> {
-    const harness = await this.#ready;
+    const harness = await this.#activeHarness();
     const messages = messagesFromEntries((await root.context(BACKGROUND_CONTEXT)).entries);
     if (extra) messages.push(extra);
     let tools: McpToolSummary[] = [];
     try { tools = await this.#getMcpTools(); }
     catch (error) { this.#log("MCP tool discovery failed; continuing without MCP", error); }
+    await this.#assertActive();
     const workspace = await harness.commit(async (tx) => ({ title: (await tx.doc(WorkspaceInfoDocument)).title }), BACKGROUND_CONTEXT);
     const contextText = promptContext(messages, tools, workspace.title);
-    await (await this.#ready).commit(async (tx) => {
+    await (await this.#activeHarness()).commit(async (tx) => {
       const doc = await tx.doc(RoomPromptContext);
       doc.text = contextText;
     }, BACKGROUND_CONTEXT);
   }
 
   async #monitorMessage(message: ChatMessage): Promise<void> {
-    const harness = await this.#ready;
+    const harness = await this.#activeHarness();
     const root = await harness.root(BACKGROUND_CONTEXT);
     const revision = await this.#advanceFollowUpRevision();
     if (!this.#models) return;
@@ -218,6 +261,7 @@ export class ChatRoom extends DurableObject<Env> {
       return;
     }
     if (!needsFollowUp) return;
+    await this.#assertActive();
 
     const dueAt = Date.now() + FOLLOW_UP_DELAY_MS;
     await root.commit(async (tx) => {
@@ -236,7 +280,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async #listSchedules(): Promise<Schedule[]> {
-    const inspection = await (await this.#ready).inspect(BACKGROUND_CONTEXT);
+    const inspection = await (await this.#activeHarness()).inspect(BACKGROUND_CONTEXT);
     return inspection.tasks.flatMap((task) => {
       if (task.record.kind !== DeliverScheduledInstruction.definition.name || task.state.kind === "blocked") return [];
       const input = task.record.input as Partial<PiScheduledInstruction>;
@@ -248,7 +292,7 @@ export class ChatRoom extends DurableObject<Env> {
   async #cancelSchedule(id: string): Promise<boolean> {
     const taskId = Number(id);
     if (!Number.isSafeInteger(taskId)) return false;
-    const harness = await this.#ready;
+    const harness = await this.#activeHarness();
     const task = await harness.getTask(taskId as TaskId, BACKGROUND_CONTEXT);
     if (!task || task.kind !== DeliverScheduledInstruction.definition.name) return false;
     const cancelled = await harness.abortTask(taskId as TaskId, BACKGROUND_CONTEXT);
@@ -257,7 +301,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async #advanceFollowUpRevision(): Promise<number> {
-    const harness = await this.#ready;
+    const harness = await this.#activeHarness();
     const revision = await harness.commit(async (tx) => {
       const cursor = await tx.doc(FollowUpCursor);
       cursor.revision += 1;
@@ -297,7 +341,8 @@ export class ChatRoom extends DurableObject<Env> {
       const settled = await submission.wait(BACKGROUND_CONTEXT);
       if (settled.status !== "done") this.#log("Agent submission ended without a final answer", settled.status);
       else {
-        const root = await (await this.#ready).root(BACKGROUND_CONTEXT);
+        await this.#assertActive();
+        const root = await (await this.#activeHarness()).root(BACKGROUND_CONTEXT);
         const messages = messagesFromEntries((await root.context(BACKGROUND_CONTEXT)).entries);
         const latestGroup = [...messages].reverse().find((message) => message.kind === "group");
         if (latestGroup) await this.#monitorMessage(latestGroup);
@@ -312,7 +357,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   async #refreshWakeupAlarm(harness?: Harness): Promise<void> {
-    const inspection: HarnessInspection = await (harness ?? await this.#ready).inspect(BACKGROUND_CONTEXT);
+    const inspection: HarnessInspection = await (harness ?? await this.#activeHarness()).inspect(BACKGROUND_CONTEXT);
     const now = Date.now();
     const deadlines = inspection.tasks.flatMap((task) => {
       if (task.record.kind === DeliverScheduledInstruction.definition.name) {

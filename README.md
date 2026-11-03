@@ -6,9 +6,9 @@ This is a demo, not an authenticated chat product. A workspace URL is a bearer l
 
 ## Demo flow
 
-1. Open `/admin`, enter the admin secret, and create a named workspace.
+1. Open `/admin`, enter the admin secret, and create a named workspace. Admins can also permanently delete a workspace and its chat data.
 2. Copy its `/w/<id>` link and share it with guests. The link selects the workspace; guests only choose a display name and do not need accounts or a secret.
-3. Chat together or ask the workspace agent for help. The agent's partial answer and tool activity stream into the collapsible **Live agent activity** panel.
+3. Chat together or ask the workspace agent for help. The partial answer streams in the chat; **Live agent activity** shows run status and tool calls without duplicating response tokens.
 4. Optionally connect one public Streamable HTTP MCP endpoint in the admin UI. Its discovered tools become available in every workspace.
 5. Ask the agent to schedule a reminder. Pi Durable stores the task and the room Durable Object wakes when it is due.
 
@@ -56,7 +56,7 @@ Guest browser -> /w/<workspace-id> (public share link)
 
 ### Agent streaming
 
-The workspace Durable Object watches the Pi Durable conversation and forwards snapshots over SSE. The browser renders partial assistant text and tool state in the collapsible activity panel as the agent runs; reconnecting receives a current snapshot.
+The workspace Durable Object watches the Pi Durable conversation and forwards snapshots over SSE. Partial assistant text streams in the chat transcript. The collapsible activity panel shows agent start/response status and named tool-call events, not response tokens; reconnecting receives the current run status.
 
 ### Automatic follow-up
 
@@ -80,6 +80,7 @@ Admin routes require `Authorization: Bearer <ADMIN_SECRET>`:
 
 - `GET /api/admin/state` — list workspaces and current global MCP status.
 - `POST /api/admin/workspaces` — create and initialize a named workspace.
+- `DELETE /api/admin/workspaces/:workspaceId` — disable the share link and permanently clear the workspace conversation, tasks, and alarm.
 - `PUT /api/admin/mcp` — connect/test a public endpoint, or disconnect with an empty URL.
 
 ## Checks
@@ -89,7 +90,7 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-Checks cover admin-secret gating, workspace creation and state, public guest sharing without an ID field, workspace isolation, SSE, activity-panel rendering, MCP URL validation, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding and do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, SSE, status-only activity-panel rendering with tool names, MCP URL validation, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding and do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
 
 ## Deploy
 

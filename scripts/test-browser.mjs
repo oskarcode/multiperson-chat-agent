@@ -42,6 +42,11 @@ try {
   await alice.locator('#authorName').fill('Alice');
   await expect(alice.locator('#status')).toContainText('Connected to public');
   await expect(alice.locator('#workspaceTitle')).toHaveText('Family room');
+  await expect(alice.locator('.workspace-sidebar #authorName')).toBeVisible();
+  await expect(alice.locator('.workspace-sidebar .mcp-panel')).toBeVisible();
+  const sidebarBounds = await alice.locator('.workspace-sidebar').boundingBox();
+  const chatBounds = await alice.locator('.chat').boundingBox();
+  expect(sidebarBounds && chatBounds && chatBounds.x > sidebarBounds.width && chatBounds.width > sidebarBounds.width).toBe(true);
   await expect(alice.locator('#status')).not.toContainText(familyPath.slice(3));
   await bob.goto(base + familyPath);
   await bob.locator('#authorName').fill('Bob');
@@ -62,6 +67,12 @@ try {
   await expect(bob.locator('#messages')).toContainText('Only in the project workspace.');
   await expect(alice.locator('#messages')).not.toContainText('Only in the project workspace.');
 
+  const familyItem = admin.locator('#workspaces .admin-item').filter({ has: admin.locator(`a[href="${familyPath}"]`) });
+  admin.once('dialog', dialog => dialog.accept());
+  await familyItem.getByRole('button', { name: 'Delete workspace' }).click();
+  await expect(admin.locator('#workspaces')).not.toContainText('Family room');
+  await expect(admin.locator('#workspaceStatus')).toContainText('Workspace deleted');
+
   const progressPage = await browser.newPage();
   progressPage.on('pageerror', error => errors.push(error.message));
   let agentRequest;
@@ -69,7 +80,7 @@ try {
   const partialSnapshot = {
     workspace: { id: progressId, title: 'Project room', createdAt: Date.now() },
     messages: [{ id: 'agent-answer', authorName: 'Group Agent', kind: 'agent', text: '**Short answer**\n\n- First step\n- Second step\n\n[Read more](https://example.com) <img src=x onerror=alert(1)>' }],
-    progress: { active: true, partialText: 'A streamed partial answer.', tools: [{ name: 'call_mcp_tool', status: 'running', output: 'Searching…' }] },
+    progress: { active: true, phase: 'using-tools', partialText: 'A streamed partial answer.', tools: [{ id: 'tool-call-1', name: 'search', status: 'running', output: 'Searching…' }] },
   };
   await progressPage.route(`**/api/workspaces/${progressId}/events`, route => route.fulfill({
     status: 200, headers: { 'content-type': 'text/event-stream' }, body: `data: ${JSON.stringify(partialSnapshot)}\n\n`,
@@ -87,16 +98,22 @@ try {
   await expect(progressPage.locator('#activityPanel')).not.toHaveClass(/hidden/u);
   await progressPage.locator('#activityPanel summary').click();
   await expect(progressPage.locator('#activityPanel')).toHaveJSProperty('open', true);
-  await expect(progressPage.locator('#progress')).toContainText('Agent is using a tool');
-  await expect(progressPage.locator('#progress')).toContainText('call_mcp_tool');
+  await expect(progressPage.locator('#progress')).toContainText('Agent started');
+  await expect(progressPage.locator('#progress')).toContainText('Agent is using tools');
+  await expect(progressPage.locator('#progress')).toContainText('Calling tool: search');
+  await expect(progressPage.locator('#progress')).not.toContainText('A streamed partial answer.');
+  await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
   await progressPage.locator('#composer').fill('Please help.');
   await progressPage.locator('#sendAgent').click();
   await expect.poll(() => agentRequest?.target).toBe('agent');
 
   await bob.setViewportSize({ width: 390, height: 844 });
   await expect(bob.locator('#composer')).toBeVisible();
+  const mobileSidebarBounds = await bob.locator('.workspace-sidebar').boundingBox();
+  const mobileChatBounds = await bob.locator('.chat').boundingBox();
+  expect(mobileSidebarBounds && mobileChatBounds && mobileChatBounds.y > mobileSidebarBounds.height).toBe(true);
   expect(await bob.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(alice.locator('#mcpSummary')).toHaveText('not connected');
   expect(errors).toEqual([]);
-  console.log('Browser tests passed: shared workspaces, guest chat, safe agent Markdown rendering, streamed activity, MCP configuration, and mobile layout.');
+  console.log('Browser tests passed: shared workspaces, admin deletion, guest chat, safe Markdown, status-only agent activity, MCP configuration, and mobile layout.');
 } finally { await browser?.close(); await mf.dispose(); }

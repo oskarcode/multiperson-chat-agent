@@ -14,11 +14,12 @@ export type McpToolSummary = {
 
 export type RoomProgress = {
   readonly active: boolean;
+  readonly phase: "idle" | "starting" | "responding" | "using-tools" | "waiting" | "retrying";
   readonly partialText: string;
   readonly tools: readonly {
+    readonly id: string;
     readonly name: string;
     readonly status: "pending" | "running" | "done";
-    readonly output?: string;
   }[];
 };
 

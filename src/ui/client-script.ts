@@ -5,7 +5,7 @@ export const appClientScript = String.raw`
     const state = {
       roomId: pathWorkspace ? decodeURIComponent(pathWorkspace) : queryWorkspace || '',
       name: 'Guest', legacy: !pathWorkspace,
-      messages: [], progress: { active: false, partialText: '', tools: [] }, source: null,
+      messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] }, activity: [], source: null,
     };
     const api = async (path, options = {}) => {
       const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } });
@@ -90,6 +90,38 @@ export const appClientScript = String.raw`
       if (codeLines) flushCode();
       flushParagraph(); flushList();
     }
+    function addActivity(text) {
+      if (!text) return;
+      state.activity.push(text);
+      if (state.activity.length > 8) state.activity.shift();
+    }
+    function recordActivity(nextProgress, nextMessages) {
+      const previous = state.progress;
+      const oldAnswers = new Set(state.messages.filter((message) => message.kind === 'agent').map((message) => message.id));
+      if (!previous.active && nextProgress.active) addActivity('Agent started');
+      if (nextProgress.active && previous.phase !== nextProgress.phase && nextProgress.phase !== 'starting') {
+        const phaseMessages = {
+          starting: 'Agent is starting',
+          responding: 'Agent is preparing a response',
+          'using-tools': 'Agent is using tools',
+          waiting: 'Agent is waiting for a response',
+          retrying: 'Agent is retrying',
+        };
+        addActivity(phaseMessages[nextProgress.phase] || 'Agent is working');
+      }
+      const oldTools = new Map((previous.tools || []).map((tool) => [tool.id || tool.name, tool]));
+      for (const tool of nextProgress.tools || []) {
+        const old = oldTools.get(tool.id || tool.name);
+        if (old?.status === tool.status) continue;
+        if (tool.status === 'pending') addActivity('Tool queued: ' + tool.name);
+        else if (tool.status === 'running') addActivity('Calling tool: ' + tool.name);
+        else addActivity('Tool completed: ' + tool.name);
+      }
+      if (previous.active && !nextProgress.active) {
+        const receivedAnswer = nextMessages.some((message) => message.kind === 'agent' && !oldAnswers.has(message.id));
+        addActivity(receivedAnswer ? 'Agent response received' : 'Agent run ended');
+      }
+    }
     function renderMessages() {
       const box = $('messages');
       const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
@@ -117,26 +149,25 @@ export const appClientScript = String.raw`
       const panel = $('activityPanel');
       const root = $('progress');
       root.replaceChildren();
-      const tools = state.progress.tools || [];
-      const partialText = state.progress.partialText || '';
-      const hasActivity = state.progress.active || partialText || tools.length;
+      const phaseLabels = {
+        starting: 'Agent starting',
+        responding: 'Agent preparing a response',
+        'using-tools': 'Agent calling tools',
+        waiting: 'Agent waiting for a response',
+        retrying: 'Agent retrying',
+        idle: 'Idle',
+      };
+      const current = state.progress.active ? (phaseLabels[state.progress.phase] || 'Agent working') : state.activity[state.activity.length - 1] || 'Idle';
+      const hasActivity = state.progress.active || state.activity.length > 0;
       panel.classList.toggle('hidden', !hasActivity);
-      if (!hasActivity) { $('activitySummary').textContent = 'Idle'; return; }
-      const runningTool = tools.some((tool) => tool.status === 'running');
-      $('activitySummary').textContent = state.progress.active ? (runningTool ? 'Using a tool' : 'Streaming') : 'Latest turn';
-      const label = document.createElement('div');
-      label.textContent = state.progress.active ? (runningTool ? 'Agent is using a tool…' : 'Agent is working…') : 'Agent turn finished.';
+      $('activitySummary').textContent = current;
+      if (!hasActivity) return;
+      const label = document.createElement('div'); label.className = 'activity-current'; label.textContent = current;
       root.append(label);
-      if (partialText) {
-        const text = document.createElement('div'); text.className = 'partial';
-        text.textContent = partialText.slice(-1600); root.append(text);
-      }
-      if (tools.length) {
-        const list = document.createElement('ul');
-        for (const tool of tools.slice(-8)) {
-          const item = document.createElement('li');
-          item.textContent = tool.name + ' · ' + tool.status + (tool.output ? ': ' + tool.output.slice(-300) : '');
-          list.append(item);
+      if (state.activity.length) {
+        const list = document.createElement('ol'); list.className = 'activity-events';
+        for (const event of state.activity) {
+          const item = document.createElement('li'); item.textContent = event; list.append(item);
         }
         root.append(list);
       }
@@ -169,8 +200,13 @@ export const appClientScript = String.raw`
       source.onmessage = (event) => {
         try {
           const snapshot = JSON.parse(event.data);
-          state.messages = snapshot.messages || [];
-          state.progress = snapshot.progress || { active: false, partialText: '', tools: [] };
+          const nextMessages = snapshot.messages || [];
+          const nextProgress = snapshot.progress || { active: false, phase: 'idle', partialText: '', tools: [] };
+          if (!nextProgress.phase) nextProgress.phase = nextProgress.active ? 'responding' : 'idle';
+          nextProgress.tools = (nextProgress.tools || []).map((tool) => ({ ...tool, id: tool.id || tool.name }));
+          recordActivity(nextProgress, nextMessages);
+          state.messages = nextMessages;
+          state.progress = nextProgress;
           if (snapshot.workspace?.title) $('workspaceTitle').textContent = snapshot.workspace.title;
           renderMessages();
         } catch (error) { $('error').textContent = 'Could not read the workspace update: ' + error.message; }

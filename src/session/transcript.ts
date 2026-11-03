@@ -55,16 +55,39 @@ export function snapshotFromView(view: ConversationView, workspaceInfo?: Workspa
   const live = view.docs["pi.live"] as LiveState | undefined;
   const partial = live?.generation?.message;
   const partialText = partial ? textContent(partial) : "";
-  const tools = [...(live?.tools ?? []), ...(live?.nestedTools ?? [])].map((tool) => ({
-    name: tool.name,
-    status: tool.status,
-    ...(tool.output === undefined ? {} : { output: tool.output }),
-  }));
+  const toolCallNames = new Map<string, string>();
+  for (const entry of view.entries) {
+    if (entry.kind !== "pi.assistant") continue;
+    for (const message of entry.model ?? []) {
+      if (message.role !== "assistant") continue;
+      for (const part of message.content) {
+        if (part.type !== "toolCall") continue;
+        const requestedName = part.name === "call_mcp_tool" && typeof part.arguments.toolName === "string"
+          ? part.arguments.toolName : part.name;
+        toolCallNames.set(part.id, requestedName);
+      }
+    }
+  }
+  const tools = [...(live?.tools ?? []), ...(live?.nestedTools ?? [])].map((tool) => {
+    const nestedName = "arguments" in tool && tool.name === "call_mcp_tool" && typeof tool.arguments.toolName === "string"
+      ? tool.arguments.toolName : undefined;
+    return {
+      id: tool.callId,
+      name: toolCallNames.get(tool.callId) ?? nestedName ?? tool.name,
+      status: tool.status,
+    };
+  });
+  const active = live?.run !== undefined;
+  const phase = !active ? "idle"
+    : live?.generation?.retry ? "retrying"
+      : live?.generation?.deferred ? "waiting"
+        : tools.some((tool) => tool.status === "pending" || tool.status === "running") ? "using-tools"
+          : live?.generation ? "responding" : "starting";
   const workspace = workspaceInfo ?? view.docs["app.workspace-info"] as WorkspaceInfo | undefined;
   return {
     ...(workspace?.id ? { workspace } : {}),
     messages: messagesFromEntries(view.entries),
-    progress: { active: live?.run !== undefined, partialText, tools },
+    progress: { active, phase, partialText, tools },
   };
 }
 

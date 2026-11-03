@@ -134,6 +134,24 @@ describe("Pi Durable room agent", () => {
     } finally { await harness.close(BACKGROUND_CONTEXT); }
   });
 
+  it("projects named tool status without exposing tool arguments or output", () => {
+    const snapshot = snapshotFromView({
+      docs: { "pi.live": {
+        run: { taskId: 1, inputs: [1] },
+        tools: [{ callId: "tool-call-1", name: "call_mcp_tool", status: "running", output: "private tool output" }],
+      } },
+      entries: [{
+        kind: "pi.assistant",
+        model: [{ role: "assistant", content: [{
+          type: "toolCall", id: "tool-call-1", name: "call_mcp_tool", arguments: { toolName: "search", args: { query: "secret query" } },
+        }] }],
+      }],
+    } as never);
+    expect(snapshot.progress.phase).toBe("using-tools");
+    expect(snapshot.progress.tools).toEqual([{ id: "tool-call-1", name: "search", status: "running" }]);
+    expect(snapshot.progress.partialText).toBe("");
+  });
+
   it("publishes streamed partial answers in durable conversation snapshots", async () => {
     const chunks = [
       { choices: [{ index: 0, delta: { role: "assistant" } }] },

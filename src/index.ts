@@ -76,6 +76,16 @@ async function adminApi(request: Request, env: Env, url: URL): Promise<Response>
       const workspace = await control.createWorkspace(textField(body, "title", 80));
       return json({ workspace }, 201);
     }
+    const deleteWorkspaceMatch = /^\/api\/admin\/workspaces\/([^/]+)$/u.exec(url.pathname);
+    if (deleteWorkspaceMatch && request.method === "DELETE") {
+      const id = roomId(deleteWorkspaceMatch[1]);
+      try {
+        if (!(await control.deleteWorkspace(id))) return json({ error: "Workspace not found." }, 404);
+        return json({ deleted: true });
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Workspace deletion failed." }, 500);
+      }
+    }
     if (url.pathname === "/api/admin/mcp" && request.method === "PUT") {
       const body = await bodyObject(request);
       const value = typeof body.url === "string" ? body.url.trim() : "";
@@ -118,7 +128,7 @@ async function fetchRequest(request: Request, env: Env): Promise<Response> {
   let id: string;
   try { id = roomId(match[1]); }
   catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid workspace ID." }, 400); }
-  if (workspaceMatch && !(await env.ADMIN.getByName("global").getWorkspaceInfo(id))) return json({ error: "Workspace not found." }, 404);
+  if (!(await env.ADMIN.getByName("global").getWorkspaceInfo(id))) return json({ error: "Workspace not found." }, 404);
   const workspace = env.ROOMS.getByName(id);
 
   try {

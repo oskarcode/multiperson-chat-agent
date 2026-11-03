@@ -27,7 +27,7 @@ A workspace's random ID maps deterministically to one `ChatRoom`, so its group t
 
 ## Agent and streaming ownership
 
-Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. `ChatRoom` adapts public chat actions into Pi Durable entries/inputs and projects each watched view into an SSE snapshot. The browser renders partial assistant text and tool calls/results in a collapsible activity panel; the same partial text is also visible in the transcript.
+Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. `ChatRoom` adapts public chat actions into Pi Durable entries/inputs and projects each watched view into an SSE snapshot. Partial assistant text streams in the chat transcript. The collapsible activity panel reports run/response transitions and named tool-call status events without duplicating response tokens.
 
 Normal group messages are passive entries; **Ask Agent** submits an input to the same workspace conversation. `schedule`, `list_schedules`, and `cancel_schedule` are Pi tools. Due reminders and proactive follow-ups submit inputs into that conversation. After group messages, Workers AI reviews recent history for unanswered questions, requests, decisions, and blockers. A useful follow-up is scheduled after a 15-minute quiet period. New group messages reset the review; an agent answer invalidates old candidates and triggers a fresh review of the conversation. Durable Object alarms wake the Harness for due tasks.
 
@@ -35,7 +35,9 @@ Normal group messages are passive entries; **Ask Agent** submits an input to the
 
 The admin page at `/admin` sends a bearer `ADMIN_SECRET` header to admin APIs. The secret is held as a Wrangler Worker secret and is never returned by the Worker. The browser keeps the entered secret only for that tab's `sessionStorage` session. Workspace chat APIs intentionally require no auth: possession of the random share URL grants read/write access.
 
-The Worker verifies a workspace ID is in the admin index before serving `/w/:id` or the `/api/workspaces/:id/*` routes. Guests can change their display name; the share URL selects the workspace, with no editable ID field or ID in the chat status. The legacy `/api/rooms/:id/*` routes remain for old query-style demo access. This is a demo gate, not a full account/ACL system.
+The Worker verifies a workspace ID is active in the admin index before serving `/w/:id` or any workspace API route. Guests can change their display name; the share URL selects the workspace, with no editable ID field or ID in the chat status. Legacy `/api/rooms/:id/*` routes also require an active index entry. This is a demo gate, not a full account/ACL system.
+
+Deleting a workspace first marks its index record as pending deletion, which immediately disables share-link access. `ChatRoom` closes its Pi Durable Harness, cancels its alarm, clears the SQLite storage, and retains only a deletion tombstone so a stale link cannot recreate the conversation. `DemoAdmin` removes the index record after cleanup succeeds; if cleanup fails, the disabled record remains in the admin list with a retry action.
 
 ## Shared MCP
 
@@ -43,8 +45,8 @@ The Worker verifies a workspace ID is in the admin index before serving `/w/:id`
 
 ## Main files
 
-- `src/index.ts` — routing, workspace lookup, admin secret validation, and streamed HTTP response.
-- `src/admin/demo-admin.ts` — global MCP URL and workspace index; creates each workspace DO.
+- `src/index.ts` — routing, workspace lookup/deletion, admin secret validation, and streamed HTTP response.
+- `src/admin/demo-admin.ts` — global MCP URL and workspace index; creates workspaces and coordinates deletion cleanup.
 - `src/session/chat-room.ts` — workspace state, Pi Durable conversation, tasks, MCP calls, and SSE watch.
 - `src/session/workspace-info.ts` — workspace metadata in Pi Durable state.
 - `src/session/harness.ts` — Workers AI model, prompt sections, tools, and durable task registrations.

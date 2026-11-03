@@ -4,16 +4,28 @@ import type { WorkspaceInfo } from "../protocol/chat";
 
 const WORKSPACE_PREFIX = "workspace:";
 const MCP_URL_KEY = "global-mcp-url";
+type WorkspaceRecord = WorkspaceInfo & { deleting?: true };
 
 /** Stores the demo-wide MCP endpoint and the index of shareable workspaces. */
 export class DemoAdmin extends DurableObject<Env> {
-  async listWorkspaces(): Promise<WorkspaceInfo[]> {
-    const records = await this.ctx.storage.list<WorkspaceInfo>({ prefix: WORKSPACE_PREFIX });
+  async listWorkspaces(): Promise<WorkspaceRecord[]> {
+    const records = await this.ctx.storage.list<WorkspaceRecord>({ prefix: WORKSPACE_PREFIX });
     return [...records.values()].sort((a, b) => b.createdAt - a.createdAt);
   }
 
   async getWorkspaceInfo(id: string): Promise<WorkspaceInfo | undefined> {
-    return this.ctx.storage.get<WorkspaceInfo>(`${WORKSPACE_PREFIX}${id}`);
+    const record = await this.ctx.storage.get<WorkspaceRecord>(`${WORKSPACE_PREFIX}${id}`);
+    return record?.deleting ? undefined : record;
+  }
+
+  async deleteWorkspace(id: string): Promise<boolean> {
+    const key = `${WORKSPACE_PREFIX}${id}`;
+    const workspace = await this.ctx.storage.get<WorkspaceRecord>(key);
+    if (!workspace) return false;
+    if (!workspace.deleting) await this.ctx.storage.put(key, { ...workspace, deleting: true });
+    await this.env.ROOMS.getByName(id).deleteWorkspace();
+    await this.ctx.storage.delete(key);
+    return true;
   }
 
   async createWorkspace(title: string): Promise<WorkspaceInfo> {

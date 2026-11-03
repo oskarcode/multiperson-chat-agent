@@ -90,6 +90,14 @@ test('admin creates shareable workspace instances; guests share chat and receive
     const disconnected = await request(mf, '/api/admin/mcp', { url: '' }, 'PUT', true);
     assert.equal(disconnected.status, 200);
     assert.equal(disconnected.data.configured, false);
+    assert.equal((await request(mf, '/api/admin/workspaces/' + workspaceId, undefined, 'DELETE')).status, 401);
+    const deleted = await request(mf, '/api/admin/workspaces/' + workspaceId, undefined, 'DELETE', true);
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(deleted.data, { deleted: true });
+    assert.equal((await mf.dispatchFetch(`http://localhost/w/${workspaceId}`)).status, 404);
+    assert.equal((await request(mf, `/api/workspaces/${workspaceId}/messages`)).status, 404);
+    assert.equal((await request(mf, `/api/rooms/${workspaceId}/messages`)).status, 404);
+    assert.equal((await request(mf, '/api/admin/workspaces', undefined, 'GET', true)).data.workspaces.length, 1);
     assert.equal((await request(mf, '/api/workspaces/bad%2Fid/messages')).status, 400);
     assert.equal((await request(mf, '/api/me')).status, 404);
   } finally { await mf.dispose(); }

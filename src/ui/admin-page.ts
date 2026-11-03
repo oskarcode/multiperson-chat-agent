@@ -33,6 +33,7 @@ export const adminPage = String.raw`
           <button type="submit">Create and get share link</button>
         </form>
         <p id="workspaceStatus" class="admin-status" role="status"></p>
+        <p class="muted">Deleting a workspace permanently removes its conversation and scheduled work; its share link stops working.</p>
         <ul id="workspaces" class="admin-list"></ul>
       </section>
     </div>
