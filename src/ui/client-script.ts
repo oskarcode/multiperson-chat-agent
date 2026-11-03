@@ -5,7 +5,8 @@ export const appClientScript = String.raw`
     const state = {
       roomId: pathWorkspace ? decodeURIComponent(pathWorkspace) : queryWorkspace || '',
       name: 'Guest', legacy: !pathWorkspace,
-      messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] }, activity: [], source: null,
+      messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] }, activity: [],
+      socket: null, reconnectTimer: null, reconnectDelay: 500, pending: new Map(),
     };
     const api = async (path, options = {}) => {
       const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } });
@@ -183,48 +184,93 @@ export const appClientScript = String.raw`
         for (const tool of result.tools) { const item = document.createElement('li'); item.textContent = (tool.title || tool.name) + (tool.description ? ' — ' + tool.description : ''); $('mcpTools').append(item); }
       } catch (error) { $('mcpSummary').textContent = 'unavailable'; $('mcpStatus').textContent = error.message; }
     }
-    function connectWorkspace() {
-      state.name = $('authorName').value.trim() || 'Guest';
+    function applySnapshot(snapshot) {
+      const nextMessages = snapshot.messages || [];
+      const nextProgress = snapshot.progress || { active: false, phase: 'idle', partialText: '', tools: [] };
+      if (!nextProgress.phase) nextProgress.phase = nextProgress.active ? 'responding' : 'idle';
+      nextProgress.tools = (nextProgress.tools || []).map((tool) => ({ ...tool, id: tool.id || tool.name }));
+      recordActivity(nextProgress, nextMessages);
+      state.messages = nextMessages;
+      state.progress = nextProgress;
+      if (snapshot.workspace?.title) $('workspaceTitle').textContent = snapshot.workspace.title;
+      renderMessages();
+    }
+    function setSendEnabled() {
+      const enabled = Boolean(state.socket && state.socket.readyState === WebSocket.OPEN && state.pending.size === 0);
+      $('composer').disabled = !enabled;
+      $('sendGroup').disabled = !enabled;
+      $('sendAgent').disabled = !enabled;
+    }
+    function socketPath() {
+      return (state.legacy ? '/api/rooms/' : '/api/workspaces/') + encodeURIComponent(state.roomId) + '/socket';
+    }
+    function connectSocket() {
       if (!state.roomId) {
         $('status').textContent = 'Open a workspace share link to join, or ask the admin to create one at /admin.';
-        $('composer').disabled = true; $('sendGroup').disabled = true; $('sendAgent').disabled = true;
+        setSendEnabled();
         return;
       }
-      $('composer').disabled = false; $('sendGroup').disabled = false; $('sendAgent').disabled = false;
-      $('status').textContent = 'Connecting to the shared workspace…'; $('error').textContent = '';
-      const source = new EventSource(roomPath('events')); state.source = source;
-      source.onopen = () => {
+      $('status').textContent = 'Connecting to the shared workspace…';
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(protocol + '//' + location.host + socketPath());
+      state.socket = socket;
+      setSendEnabled();
+      socket.onopen = () => {
+        if (state.socket !== socket) return;
+        state.reconnectDelay = 500;
         const title = $('workspaceTitle').textContent === 'MultiPerson Chat' ? 'workspace' : '“' + $('workspaceTitle').textContent + '”';
         $('status').textContent = 'Connected to public ' + title + '. Anyone with this link can read and post.';
+        setSendEnabled();
+        for (const pending of state.pending.values()) socket.send(JSON.stringify(pending));
       };
-      source.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (state.socket !== socket) return;
         try {
-          const snapshot = JSON.parse(event.data);
-          const nextMessages = snapshot.messages || [];
-          const nextProgress = snapshot.progress || { active: false, phase: 'idle', partialText: '', tools: [] };
-          if (!nextProgress.phase) nextProgress.phase = nextProgress.active ? 'responding' : 'idle';
-          nextProgress.tools = (nextProgress.tools || []).map((tool) => ({ ...tool, id: tool.id || tool.name }));
-          recordActivity(nextProgress, nextMessages);
-          state.messages = nextMessages;
-          state.progress = nextProgress;
-          if (snapshot.workspace?.title) $('workspaceTitle').textContent = snapshot.workspace.title;
-          renderMessages();
+          const message = JSON.parse(event.data);
+          if (message.type === 'snapshot') { applySnapshot(message.snapshot); return; }
+          if (message.type === 'ack' && typeof message.requestId === 'string') {
+            const pending = state.pending.get(message.requestId);
+            if (!pending) return;
+            state.pending.delete(message.requestId);
+            if ($('composer').value.trim() === pending.text) $('composer').value = '';
+            if (pending.target === 'agent') $('status').textContent = 'Agent request queued.';
+            setSendEnabled();
+            return;
+          }
+          if (message.type === 'error') {
+            if (typeof message.requestId === 'string') state.pending.delete(message.requestId);
+            $('error').textContent = message.error || 'The workspace could not process that message.';
+            setSendEnabled();
+          }
         } catch (error) { $('error').textContent = 'Could not read the workspace update: ' + error.message; }
       };
-      source.onerror = () => { $('status').textContent = 'Workspace connection interrupted; reconnecting…'; };
+      socket.onerror = () => { if (state.socket === socket) $('status').textContent = 'Workspace connection interrupted; reconnecting…'; };
+      socket.onclose = () => {
+        if (state.socket !== socket) return;
+        setSendEnabled();
+        $('status').textContent = 'Workspace connection interrupted; reconnecting…';
+        if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+        const delay = state.reconnectDelay;
+        state.reconnectDelay = Math.min(state.reconnectDelay * 2, 10_000);
+        state.reconnectTimer = setTimeout(connectSocket, delay);
+      };
+    }
+    function connectWorkspace() {
+      state.name = $('authorName').value.trim() || 'Guest';
+      $('error').textContent = '';
+      connectSocket();
       refreshMcp();
     }
-    async function send(target) {
+    function send(target) {
       const text = $('composer').value.trim();
-      if (!text || !state.roomId) return;
+      if (!text || !state.roomId || !state.socket || state.socket.readyState !== WebSocket.OPEN || state.pending.size) return;
       $('error').textContent = '';
-      $('sendGroup').disabled = true; $('sendAgent').disabled = true;
-      try {
-        await api(roomPath('messages'), { method: 'POST', body: JSON.stringify({ authorName: state.name, text, target, requestId: crypto.randomUUID() }) });
-        $('composer').value = '';
-        if (target === 'agent') $('status').textContent = 'Agent request queued.';
-      } catch (error) { $('error').textContent = error.message; }
-      finally { $('sendGroup').disabled = false; $('sendAgent').disabled = false; }
+      const requestId = crypto.randomUUID();
+      const pending = { type: 'send', requestId, authorName: state.name, text, target };
+      state.pending.set(requestId, pending);
+      setSendEnabled();
+      try { state.socket.send(JSON.stringify(pending)); }
+      catch (error) { $('error').textContent = error.message; }
     }
     $('authorName').value = localStorage.getItem('chat-name') || 'Guest';
     $('authorName').addEventListener('input', () => {

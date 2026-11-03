@@ -12,13 +12,13 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 - Admin deletion must disable the workspace in the global index before cleanup, close the Pi Durable Harness, cancel alarms, clear the room's SQLite data, and retain only a deletion tombstone so stale links cannot recreate it. Keep failed cleanup retryable from the admin list.
 - Group messages, Ask Agent requests, assistant replies, reminders, and progress are stored/projected from Pi Durable. Do not add a second transcript store.
 - Pi Durable/Pi AI owns model turns, tool execution, durable reminder/follow-up tasks, recovery, and authoritative conversation history. Workers AI is the only model provider.
-- The browser receives committed conversation snapshots over SSE from Pi Durable conversation watches. Keep streamed partial assistant text in the chat transcript; the collapsible live activity panel should show run/response status and tool-call names/statuses, never duplicate response tokens.
+- The browser uses a hibernatable Durable Object WebSocket for guest sends and committed Pi Durable conversation snapshots. Keep streamed partial assistant text in the chat transcript; the collapsible live activity panel should show run/response status and tool-call names/statuses, never duplicate response tokens. Rebuild in-memory watches after hibernation, send a current snapshot on reconnect, and keep idle sockets free of heartbeat timers.
 - One public HTTPS Streamable HTTP MCP endpoint is configured by the admin and shared by all workspaces. Keep tool discovery and invocation, but do not let guests choose outbound URLs. OAuth, private MCP endpoints, and stored credentials are out of scope.
 - There are no guest accounts, workspace ACLs, memberships, invite/role systems, Anthropic credentials, model settings, skills management, or schedule calendar. Make these limits clear.
 
 ## Keep the code easy to teach
 
-- Prefer direct Worker routing for the small API surface and typed Durable Object RPC; do not reintroduce Hono or duplicate RPC interfaces.
+- Use Hono for the small Worker HTTP route table and WebSocket upgrade dispatch; keep the hibernatable socket lifecycle inside `ChatRoom` and use typed Durable Object RPC for non-upgrade operations. Do not duplicate RPC interfaces.
 - Keep one obvious state owner per domain: `DemoAdmin` for the small global workspace/MCP index, `ChatRoom` for each workspace's application state and Pi Durable session.
 - Use Pi Durable primitives for agent, task, transcript, and progress behavior. Do not implement a custom agent loop or custom event-diff protocol.
 - Follow-up review should examine recent conversation context for unresolved requests, questions, decisions, and blockers. Use the 15-minute quiet-period debounce; new group messages and completed agent replies must invalidate/review stale candidates.

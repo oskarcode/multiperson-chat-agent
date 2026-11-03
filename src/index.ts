@@ -1,3 +1,4 @@
+import { Hono } from "hono";
 import { DemoAdmin } from "./admin/demo-admin";
 import { ChatRoom } from "./session/chat-room";
 import { validatePublicMcpUrl, listMcpTools } from "./integrations/mcp";
@@ -6,6 +7,8 @@ import { appHtml } from "./ui/app-html";
 import type { Env } from "./platform-env";
 
 export { ChatRoom, DemoAdmin };
+
+type HonoEnv = { Bindings: Env };
 
 const pageHeaders = {
   "Cache-Control": "no-store",
@@ -61,7 +64,7 @@ async function adminApi(request: Request, env: Env, url: URL): Promise<Response>
   try {
     if (url.pathname === "/api/admin/state" && request.method === "GET") {
       const [workspaces, mcpUrl] = await Promise.all([control.listWorkspaces(), control.getMcpUrl()]);
-      let mcp = { url: mcpUrl, configured: Boolean(mcpUrl), tools: [] as Awaited<ReturnType<typeof listMcpTools>>, error: undefined as string | undefined };
+      const mcp = { url: mcpUrl, configured: Boolean(mcpUrl), tools: [] as Awaited<ReturnType<typeof listMcpTools>>, error: undefined as string | undefined };
       if (mcpUrl) {
         try { mcp.tools = await listMcpTools(mcpUrl); }
         catch (error) { mcp.error = error instanceof Error ? error.message : String(error); }
@@ -105,63 +108,58 @@ async function adminApi(request: Request, env: Env, url: URL): Promise<Response>
   }
 }
 
-async function fetchRequest(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD")) {
-    return new Response(request.method === "HEAD" ? null : appHtml, { headers: pageHeaders });
-  }
-  if (url.pathname === "/admin" && request.method === "GET") return new Response(adminHtml, { headers: pageHeaders });
-  if (/^\/w\/[^/]+$/u.test(url.pathname) && request.method === "GET") {
-    let id: string;
-    try { id = roomId(url.pathname.slice(3)); }
-    catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid workspace ID." }, 400); }
-    if (!(await env.ADMIN.getByName("global").getWorkspaceInfo(id))) return json({ error: "Workspace not found." }, 404);
-    return new Response(appHtml, { headers: { ...pageHeaders, "X-Robots-Tag": "noindex, nofollow" } });
-  }
-  if (url.pathname.startsWith("/api/admin/")) return adminApi(request, env, url);
-
-  const workspaceMatch = /^\/api\/workspaces\/([^/]+)\/(messages|events|mcp|info)$/u.exec(url.pathname);
-  const legacyRoomMatch = /^\/api\/rooms\/([^/]+)\/(messages|events|mcp)$/u.exec(url.pathname);
-  const match = workspaceMatch ?? legacyRoomMatch;
-  if (!match) return json({ error: "Not found" }, 404);
-
+async function workspaceApi(request: Request, env: Env, rawId: string, action: string): Promise<Response> {
   let id: string;
-  try { id = roomId(match[1]); }
+  try { id = roomId(rawId); }
   catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid workspace ID." }, 400); }
   if (!(await env.ADMIN.getByName("global").getWorkspaceInfo(id))) return json({ error: "Workspace not found." }, 404);
-  const workspace = env.ROOMS.getByName(id);
 
+  const workspace = env.ROOMS.getByName(id);
   try {
-    if (match[2] === "info" && request.method === "GET") return json({ workspace: await workspace.getWorkspace() });
-    if (match[2] === "messages" && request.method === "GET") return json({ messages: await workspace.getMessages() });
-    if (match[2] === "events" && request.method === "GET") {
-      const stream = await workspace.watch();
-      return new Response(stream, { headers: {
-        "Cache-Control": "no-cache, no-transform",
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "X-Accel-Buffering": "no",
-      } });
-    }
-    if (match[2] === "mcp" && request.method === "GET") return json(await workspace.mcpStatus());
-    if (match[2] === "messages" && request.method === "POST") {
-      const body = await bodyObject(request);
-      const authorName = textField(body, "authorName", 80);
-      const text = textField(body, "text", 4000);
-      if (body.target === "agent") {
-        const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
-        if (requestId.length > 120) return json({ error: "requestId must be 120 characters or fewer." }, 400);
-        const result = await workspace.askAgent({ authorName, text, requestId: requestId || crypto.randomUUID() });
-        return json(result, 202);
-      }
-      return json({ message: await workspace.sendGroupMessage({ authorName, text }) }, 201);
-    }
-    return json({ error: "Method not allowed" }, 405);
+    if (action === "info" && request.method === "GET") return json({ workspace: await workspace.getWorkspace() });
+    if (action === "messages" && request.method === "GET") return json({ messages: await workspace.getMessages() });
+    if (action === "mcp" && request.method === "GET") return json(await workspace.mcpStatus());
+    return json({ error: "Not found" }, 404);
   } catch (error) {
-    console.error(JSON.stringify({ message: "Workspace request failed", workspaceId: id, path: url.pathname, error: error instanceof Error ? error.message : String(error) }));
+    console.error(JSON.stringify({ message: "Workspace request failed", workspaceId: id, path: new URL(request.url).pathname, error: error instanceof Error ? error.message : String(error) }));
     return json({ error: error instanceof Error ? error.message : "Request failed" }, 400);
   }
 }
 
+async function workspaceSocket(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+    return new Response("Expected a WebSocket upgrade.", { status: 426, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
+  let id: string;
+  try { id = roomId(rawId); }
+  catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid workspace ID." }, 400); }
+  if (!(await env.ADMIN.getByName("global").getWorkspaceInfo(id))) return json({ error: "Workspace not found." }, 404);
+  return env.ROOMS.getByName(id).fetch(request);
+}
+
+const app = new Hono<HonoEnv>();
+
+app.on(["GET", "HEAD"], "/", (c) => new Response(c.req.method === "HEAD" ? null : appHtml, { headers: pageHeaders }));
+app.get("/admin", () => new Response(adminHtml, { headers: pageHeaders }));
+app.get("/w/:id", async (c) => {
+  let id: string;
+  try { id = roomId(c.req.param("id")); }
+  catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid workspace ID." }, 400); }
+  if (!(await c.env.ADMIN.getByName("global").getWorkspaceInfo(id))) return json({ error: "Workspace not found." }, 404);
+  return new Response(appHtml, { headers: { ...pageHeaders, "X-Robots-Tag": "noindex, nofollow" } });
+});
+
+app.all("/api/admin/*", (c) => adminApi(c.req.raw, c.env, new URL(c.req.url)));
+app.get("/api/workspaces/:id/socket", (c) => workspaceSocket(c.req.raw, c.env, c.req.param("id")));
+app.get("/api/rooms/:id/socket", (c) => workspaceSocket(c.req.raw, c.env, c.req.param("id")));
+app.all("/api/workspaces/:id/:action", (c) => workspaceApi(c.req.raw, c.env, c.req.param("id"), c.req.param("action")));
+app.all("/api/rooms/:id/:action", (c) => workspaceApi(c.req.raw, c.env, c.req.param("id"), c.req.param("action")));
+app.notFound(() => json({ error: "Not found" }, 404));
+app.onError((error, c) => {
+  console.error(JSON.stringify({ message: "Unhandled request failure", path: new URL(c.req.url).pathname, error: error.message }));
+  return json({ error: "Request failed" }, 500);
+});
+
 export default {
-  fetch: fetchRequest,
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
 } satisfies ExportedHandler<Env>;

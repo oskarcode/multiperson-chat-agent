@@ -60,12 +60,20 @@ try {
   await bob.locator('#sendGroup').click();
   await expect(alice.locator('#messages')).toContainText('This workspace is shared.');
 
+  let bobWebSocketCount = 0;
+  bob.on('websocket', () => { bobWebSocketCount += 1; });
   await bob.goto(base + projectPath);
   await expect(bob.locator('#messages')).not.toContainText('Hello to everyone in this workspace.');
   await bob.locator('#composer').fill('Only in the project workspace.');
   await bob.locator('#sendGroup').click();
   await expect(bob.locator('#messages')).toContainText('Only in the project workspace.');
   await expect(alice.locator('#messages')).not.toContainText('Only in the project workspace.');
+  const idleConnectionCount = bobWebSocketCount;
+  await bob.waitForTimeout(12_000);
+  expect(bobWebSocketCount).toBe(idleConnectionCount);
+  await bob.locator('#composer').fill('The room remained connected while idle.');
+  await bob.locator('#sendGroup').click();
+  await expect(bob.locator('#messages')).toContainText('The room remained connected while idle.');
 
   const familyItem = admin.locator('#workspaces .admin-item').filter({ has: admin.locator(`a[href="${familyPath}"]`) });
   admin.once('dialog', dialog => dialog.accept());
@@ -82,12 +90,17 @@ try {
     messages: [{ id: 'agent-answer', authorName: 'Group Agent', kind: 'agent', text: '**Short answer**\n\n- First step\n- Second step\n\n[Read more](https://example.com) <img src=x onerror=alert(1)>' }],
     progress: { active: true, phase: 'using-tools', partialText: 'A streamed partial answer.', tools: [{ id: 'tool-call-1', name: 'search', status: 'running', output: 'Searching…' }] },
   };
-  await progressPage.route(`**/api/workspaces/${progressId}/events`, route => route.fulfill({
-    status: 200, headers: { 'content-type': 'text/event-stream' }, body: `data: ${JSON.stringify(partialSnapshot)}\n\n`,
-  }));
-  await progressPage.route(`**/api/workspaces/${progressId}/messages`, async route => {
-    agentRequest = route.request().postDataJSON();
-    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ requestId: 'browser-agent-request' }) });
+  await progressPage.routeWebSocket(`**/api/workspaces/${progressId}/socket`, socket => {
+    socket.send(JSON.stringify({ type: 'snapshot', snapshot: partialSnapshot }));
+    socket.onMessage(data => {
+      try {
+        const message = JSON.parse(String(data));
+        if (message.type === 'send' && message.target === 'agent') {
+          agentRequest = message;
+          socket.send(JSON.stringify({ type: 'ack', requestId: message.requestId, status: 'accepted' }));
+        }
+      } catch { /* Ignore frames outside this browser assertion. */ }
+    });
   });
   await progressPage.goto(base + projectPath);
   await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');

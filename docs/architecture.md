@@ -13,12 +13,12 @@ Admin browser
        -> creates a random workspace ID and calls ChatRoom.initializeWorkspace()
 
 Guest browser -> /w/<workspaceId>
-  -> Worker /api/workspaces/<workspaceId>/*
-  -> ROOMS.getByName(workspaceId)
+  -> Hono /api/workspaces/<workspaceId>/* route
+  -> ROOMS.getByName(workspaceId) (RPC for reads; fetch proxy for WebSocket upgrades)
   -> ChatRoom Durable Object
        -> Pi Durable Harness over this object's SQLite storage
        -> one root conversation plus workspace metadata
-       -> chat, agent turns, schedule/follow-up tasks, alarms, SSE watch
+       -> chat, agent turns, schedule/follow-up tasks, alarms, hibernatable WebSocket handlers/watch
        -> reads the global MCP URL from DemoAdmin
   -> Workers AI and optional public MCP server
 ```
@@ -27,7 +27,9 @@ A workspace's random ID maps deterministically to one `ChatRoom`, so its group t
 
 ## Agent and streaming ownership
 
-Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. `ChatRoom` adapts public chat actions into Pi Durable entries/inputs and projects each watched view into an SSE snapshot. Partial assistant text streams in the chat transcript. The collapsible activity panel reports run/response transitions and named tool-call status events without duplicating response tokens.
+Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. Hono routes HTTP requests and forwards the WebSocket upgrade to `ChatRoom.fetch`, where the Durable Object accepts the server socket with the Hibernation API. `ChatRoom` adapts guest commands into Pi Durable entries/inputs and broadcasts snapshots from one conversation watch to every connected guest. Partial assistant text streams in the chat transcript. The collapsible activity panel reports run/response transitions and named tool-call status events without duplicating response tokens.
+
+When an idle room hibernates, the WebSocket connection remains open but the JavaScript instance and in-memory conversation watch are discarded. On reconstruction, `ChatRoom` reopens its Harness and recreates the watch for sockets returned by `ctx.getWebSockets()`, then sends the latest durable snapshot. The browser also reconnects with exponential backoff and retries unacknowledged sends using the same `requestId`; group writes and agent submissions use that ID for Pi Durable deduplication. No interval heartbeat is used, so it does not keep an idle room awake.
 
 Normal group messages are passive entries; **Ask Agent** submits an input to the same workspace conversation. `schedule`, `list_schedules`, and `cancel_schedule` are Pi tools. Due reminders and proactive follow-ups submit inputs into that conversation. After group messages, Workers AI reviews recent history for unanswered questions, requests, decisions, and blockers. A useful follow-up is scheduled after a 15-minute quiet period. New group messages reset the review; an agent answer invalidates old candidates and triggers a fresh review of the conversation. Durable Object alarms wake the Harness for due tasks.
 
@@ -45,9 +47,9 @@ Deleting a workspace first marks its index record as pending deletion, which imm
 
 ## Main files
 
-- `src/index.ts` — routing, workspace lookup/deletion, admin secret validation, and streamed HTTP response.
+- `src/index.ts` — Hono routing, workspace lookup/deletion, admin-secret validation, and WebSocket upgrade proxying.
 - `src/admin/demo-admin.ts` — global MCP URL and workspace index; creates workspaces and coordinates deletion cleanup.
-- `src/session/chat-room.ts` — workspace state, Pi Durable conversation, tasks, MCP calls, and SSE watch.
+- `src/session/chat-room.ts` — workspace state, Pi Durable conversation, tasks, MCP calls, hibernatable socket handlers, and the shared snapshot watch.
 - `src/session/workspace-info.ts` — workspace metadata in Pi Durable state.
 - `src/session/harness.ts` — Workers AI model, prompt sections, tools, and durable task registrations.
 - `src/session/transcript.ts` — Pi entries/`pi.live` projection and room prompt context.

@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Harness, type Conversation, type HarnessInspection, type Submission, type TaskId } from "@earendil-works/pi-durable";
+import { Harness, type Conversation, type ConversationWatch, type HarnessInspection, type Submission, type TaskId } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Env } from "../platform-env";
@@ -15,7 +15,6 @@ import { WorkspaceInfoDocument } from "./workspace-info";
 import { DeliverScheduledInstruction, type PiScheduledInstruction } from "./schedule-task";
 import { snapshotFromView, messagesFromEntries, promptContext } from "./transcript";
 
-const encoder = new TextEncoder();
 const ROOT_CONVERSATION_ID = 1 as const;
 const FOLLOW_UP_DELAY_MS = 15 * 60 * 1000;
 const MCP_CACHE_MS = 60_000;
@@ -30,6 +29,9 @@ export class ChatRoom extends DurableObject<Env> {
   #models: Models | undefined;
   #mcpCache: { url: string; expiresAt: number; tools: McpToolSummary[] } | undefined;
   #writeQueue: Promise<void> = Promise.resolve();
+  #broadcastWatch: ConversationWatch | undefined;
+  #watchStarting: Promise<ConversationWatch> | undefined;
+  #workspaceInfo: WorkspaceInfo | null | undefined;
   #deleted = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -41,6 +43,97 @@ export class ChatRoom extends DurableObject<Env> {
       }
       return this.#openHarness();
     });
+    if (this.#hasOpenWebSockets()) {
+      this.ctx.waitUntil(this.#ready.then(async (harness) => {
+        if (harness) await this.#ensureBroadcastWatch();
+      }).catch((error) => this.#log("Could not restore the room WebSocket watch", error)));
+    }
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("Expected a WebSocket upgrade.", { status: 426, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
+    if (this.#deleted || await this.ctx.storage.get<boolean>(DELETED_WORKSPACE_KEY)) {
+      return Response.json({ error: "Workspace has been deleted." }, { status: 404 });
+    }
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    try {
+      const hadWatch = this.#broadcastWatch !== undefined;
+      const watch = await this.#ensureBroadcastWatch();
+      if (hadWatch) this.#sendSocket(server, { type: "snapshot", snapshot: snapshotFromView(watch.value, this.#workspaceInfo) });
+      return new Response(null, { status: 101, webSocket: client });
+    } catch (error) {
+      try { server.close(1011, "Workspace connection failed"); } catch { /* The connection may already be closed. */ }
+      throw error;
+    }
+  }
+
+  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== "string" || message.length > 10_000) {
+      this.#sendSocket(socket, { type: "error", error: "Send a chat message as a small JSON text frame." });
+      return;
+    }
+    let command: unknown;
+    try { command = JSON.parse(message); }
+    catch {
+      this.#sendSocket(socket, { type: "error", error: "Send a valid JSON message." });
+      return;
+    }
+    if (!command || typeof command !== "object" || Array.isArray(command)) {
+      this.#sendSocket(socket, { type: "error", error: "Send a JSON object." });
+      return;
+    }
+    const input = command as Record<string, unknown>;
+    if (input.type === "snapshot") {
+      try {
+        const watch = await this.#ensureBroadcastWatch();
+        this.#sendSocket(socket, { type: "snapshot", snapshot: snapshotFromView(watch.value, this.#workspaceInfo) });
+      } catch (error) {
+        this.#sendSocket(socket, { type: "error", error: error instanceof Error ? error.message : "Could not load the workspace." });
+      }
+      return;
+    }
+    if (input.type !== "send" || (input.target !== "group" && input.target !== "agent")) {
+      this.#sendSocket(socket, { type: "error", error: "Unknown chat action." });
+      return;
+    }
+    const requestId = typeof input.requestId === "string" ? input.requestId.trim() : "";
+    const authorName = typeof input.authorName === "string" ? input.authorName.trim() : "";
+    const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (!requestId || requestId.length > 120) {
+      this.#sendSocket(socket, { type: "error", error: "requestId is required and must be 120 characters or fewer." });
+      return;
+    }
+    if (!authorName || authorName.length > 80) {
+      this.#sendSocket(socket, { type: "error", requestId, error: "Display name is required and must be 80 characters or fewer." });
+      return;
+    }
+    if (!text || text.length > 4000) {
+      this.#sendSocket(socket, { type: "error", requestId, error: "Message is required and must be 4000 characters or fewer." });
+      return;
+    }
+    try {
+      await this.#ensureBroadcastWatch();
+      await this.#assertActive();
+      if (input.target === "group") await this.sendGroupMessage({ authorName, text, requestId });
+      else await this.askAgent({ authorName, text, requestId });
+      this.#sendSocket(socket, { type: "ack", requestId, status: "accepted" });
+    } catch (error) {
+      this.#sendSocket(socket, { type: "error", requestId, error: error instanceof Error ? error.message : "The message could not be sent." });
+    }
+  }
+
+  async webSocketClose(socket: WebSocket, code: number, reason: string): Promise<void> {
+    try { socket.close(code, reason); } catch { /* The connection is already closed. */ }
+    if (!this.#hasOpenWebSockets()) await this.#stopBroadcastWatch();
+  }
+
+  async webSocketError(socket: WebSocket): Promise<void> {
+    try { socket.close(1011, "WebSocket error"); } catch { /* The connection is already closed. */ }
+    if (!this.#hasOpenWebSockets()) await this.#stopBroadcastWatch();
   }
 
   async getMessages(): Promise<ChatMessage[]> {
@@ -72,67 +165,37 @@ export class ChatRoom extends DurableObject<Env> {
     return state.id ? state : null;
   }
 
-  /** Stream an initial room snapshot and every committed Pi Durable conversation update as SSE frames. */
-  async watch(): Promise<ReadableStream<Uint8Array>> {
-    const harness = await this.#activeHarness();
-    const root = await harness.root(BACKGROUND_CONTEXT);
-    const workspaceInfo = await this.getWorkspace();
-    const watch = await root.watch(BACKGROUND_CONTEXT);
-    let heartbeat: ReturnType<typeof setInterval> | undefined;
-    return new ReadableStream<Uint8Array>({
-      type: "bytes",
-      start: (controller) => {
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshotFromView(watch.value, workspaceInfo))}\n\n`));
-          watch.start(async (view) => {
-            try {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshotFromView(view, workspaceInfo))}\n\n`));
-            } catch {
-              await watch.stop();
-            }
-          });
-          heartbeat = setInterval(() => {
-            try { controller.enqueue(encoder.encode(": keepalive\n\n")); }
-            catch { if (heartbeat) clearInterval(heartbeat); }
-          }, 15_000);
-          void watch.closed.then(() => {
-            if (heartbeat) clearInterval(heartbeat);
-            try { controller.close(); } catch { /* The browser already cancelled the stream. */ }
-          });
-        } catch (error) {
-          if (heartbeat) clearInterval(heartbeat);
-          controller.error(error);
-          void watch.stop();
-        }
-      },
-      cancel: () => {
-        if (heartbeat) clearInterval(heartbeat);
-        return watch.stop().then(() => undefined);
-      },
-    });
-  }
-
-  async sendGroupMessage(input: { authorName: string; text: string }): Promise<ChatMessage> {
+  async sendGroupMessage(input: { authorName: string; text: string; requestId: string }): Promise<ChatMessage> {
     await this.#assertActive();
     const message: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: input.requestId,
       authorName: input.authorName.trim() || "Guest",
       kind: "group",
       text: input.text.trim(),
       createdAt: Date.now(),
     };
-    await this.#serialize(async () => {
+    const result = await this.#serialize(async () => {
       const harness = await this.#activeHarness();
       const root = await harness.root(BACKGROUND_CONTEXT);
+      const existingEntry = (await root.context(BACKGROUND_CONTEXT)).entries.find((entry) => {
+        if (entry.kind !== "chat.message" || !entry.data || typeof entry.data !== "object" || Array.isArray(entry.data)) return false;
+        return entry.data.id === message.id;
+      });
+      if (existingEntry) {
+        const existing = messagesFromEntries([existingEntry]).find((item) => item.kind === "group");
+        if (existing) return { message: existing, created: false };
+      }
       const submission = await root.submit({
         type: "write",
+        requestId: `group:${message.id}`,
         entry: { kind: "chat.message", data: message },
       }, BACKGROUND_CONTEXT);
       await submission.wait(BACKGROUND_CONTEXT);
       await this.#updatePromptContext(root);
+      return { message, created: true };
     });
-    this.ctx.waitUntil(this.#monitorMessage(message).catch((error) => this.#log("Follow-up monitor failed", error)));
-    return message;
+    if (result.created) this.ctx.waitUntil(this.#monitorMessage(result.message).catch((error) => this.#log("Follow-up monitor failed", error)));
+    return result.message;
   }
 
   async askAgent(input: { authorName: string; text: string; requestId: string }): Promise<{ requestId: string }> {
@@ -143,6 +206,11 @@ export class ChatRoom extends DurableObject<Env> {
     await this.#serialize(async () => {
       const harness = await this.#activeHarness();
       const root = await harness.root(BACKGROUND_CONTEXT);
+      const existingAsk = (await root.context(BACKGROUND_CONTEXT)).entries.some((entry) => {
+        if (entry.kind !== "chat.ask" || !entry.data || typeof entry.data !== "object" || Array.isArray(entry.data)) return false;
+        return entry.data.id === requestId;
+      });
+      if (existingAsk) return;
       const ask: ChatMessage = { id: requestId, authorName, kind: "agent-request", text, createdAt: Date.now() };
       await this.#advanceFollowUpRevision();
       await this.#updatePromptContext(root, ask);
@@ -172,6 +240,10 @@ export class ChatRoom extends DurableObject<Env> {
 
   async deleteWorkspace(): Promise<void> {
     this.#deleted = true;
+    for (const socket of this.ctx.getWebSockets()) {
+      try { socket.close(1008, "Workspace deleted"); } catch { /* The connection is already closed. */ }
+    }
+    await this.#stopBroadcastWatch();
     await this.#serialize(async () => {
       if (await this.ctx.storage.get<boolean>(DELETED_WORKSPACE_KEY)) {
         await this.ctx.storage.deleteAlarm();
@@ -191,6 +263,58 @@ export class ChatRoom extends DurableObject<Env> {
     harness.resume();
     await harness.waitForIdle(BACKGROUND_CONTEXT);
     await this.#refreshWakeupAlarm(harness);
+  }
+
+  #hasOpenWebSockets(): boolean {
+    return this.ctx.getWebSockets().some((socket) => socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING);
+  }
+
+  async #ensureBroadcastWatch(): Promise<ConversationWatch> {
+    if (this.#broadcastWatch) return this.#broadcastWatch;
+    if (this.#watchStarting) return this.#watchStarting;
+    const starting = this.#startBroadcastWatch();
+    this.#watchStarting = starting;
+    try { return await starting; }
+    finally { if (this.#watchStarting === starting) this.#watchStarting = undefined; }
+  }
+
+  async #startBroadcastWatch(): Promise<ConversationWatch> {
+    const root = await (await this.#activeHarness()).root(BACKGROUND_CONTEXT);
+    const workspaceInfo = await this.getWorkspace();
+    this.#workspaceInfo = workspaceInfo;
+    const watch = await root.watch(BACKGROUND_CONTEXT);
+    this.#broadcastWatch = watch;
+    await this.#broadcastSnapshot(snapshotFromView(watch.value, workspaceInfo));
+    watch.start(async (view) => this.#broadcastSnapshot(snapshotFromView(view, workspaceInfo)));
+    void watch.closed.then((end) => {
+      if (this.#broadcastWatch !== watch) return;
+      this.#broadcastWatch = undefined;
+      if (end.reason !== "stopped" && !this.#deleted && this.#hasOpenWebSockets()) {
+        this.ctx.waitUntil(this.#ensureBroadcastWatch().catch((error) => this.#log("Could not restart the room WebSocket watch", error)));
+      }
+    });
+    return watch;
+  }
+
+  async #broadcastSnapshot(snapshot: ReturnType<typeof snapshotFromView>): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) this.#sendSocket(socket, { type: "snapshot", snapshot });
+  }
+
+  #sendSocket(socket: WebSocket, message: unknown): void {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    try { socket.send(JSON.stringify(message)); }
+    catch (error) {
+      this.#log("Could not send a room WebSocket frame", error);
+      try { socket.close(1011, "Could not send workspace update"); } catch { /* The connection is already closed. */ }
+    }
+  }
+
+  async #stopBroadcastWatch(): Promise<void> {
+    const starting = this.#watchStarting;
+    if (starting) await starting.catch(() => undefined);
+    const watch = this.#broadcastWatch;
+    this.#broadcastWatch = undefined;
+    if (watch) await watch.stop();
   }
 
   async #assertActive(): Promise<void> {

@@ -1,14 +1,14 @@
 # Pi Durable workspace behavior
 
-Each shareable workspace maps to one `ChatRoom` Durable Object. That object owns the workspace's Pi Durable Harness, root conversation, metadata, transcript, scheduled tasks, and live stream. The separate `DemoAdmin` object stores the workspace index and one global MCP URL; it does not hold chat sessions.
+Each shareable workspace maps to one `ChatRoom` Durable Object. That object owns the workspace's Pi Durable Harness, root conversation, metadata, transcript, scheduled tasks, and hibernatable WebSocket fan-out. The separate `DemoAdmin` object stores the workspace index and one global MCP URL; it does not hold chat sessions.
 
 ## Agent and transcript
 
-Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, task recovery, and live snapshots. Group posts are passive entries; Ask Agent, reminders, and follow-ups submit inputs to the same workspace conversation. The browser receives SSE snapshots containing committed transcript entries and `pi.live` partial/tool state. Guest UI exposes the display-name field only; the share link selects the workspace.
+Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, task recovery, and live snapshots. Group posts are passive entries; Ask Agent, reminders, and follow-ups submit inputs to the same workspace conversation. The browser receives WebSocket snapshots containing committed transcript entries and `pi.live` partial/tool state, and sends group/agent commands on the same connection. The Durable Object rebuilds its in-memory watch after hibernation; guests receive a current snapshot after connecting or reconnecting. Guest UI exposes the display-name field only; the share link selects the workspace.
 
 ## Scheduled work
 
-A reminder is a Pi Durable task, not a separate app calendar. When due, it submits an instruction to the workspace root conversation. A Durable Object alarm wakes the Harness, and the assistant response appears in the same transcript and activity stream.
+A reminder is a Pi Durable task, not a separate app calendar. When due, it submits an instruction to the workspace root conversation. A Durable Object alarm wakes the Harness, and the assistant response appears in the same transcript and WebSocket snapshot stream.
 
 ## Conversation-aware follow-up
 
@@ -24,4 +24,4 @@ Guests do not sign in: anyone with the random workspace link can read and post. 
 
 ## Verification boundary
 
-Local tests cover Pi Durable turns/tasks, follow-up classification and stale-candidate behavior, workspace isolation, admin gating, SSE, and browser rendering. They do not prove live Workers AI inference, a real MCP server connection, or wall-clock follow-up delivery.
+Local tests cover Pi Durable turns/tasks, follow-up classification and stale-candidate behavior, workspace isolation, admin gating, WebSocket snapshots/sends, and browser rendering. An idle-connection browser check does not prove the production runtime actually hibernated the object. Tests do not prove live Workers AI inference, a real MCP server connection, or wall-clock follow-up delivery.

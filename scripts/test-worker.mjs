@@ -38,7 +38,34 @@ async function request(mf, path, body, method = body ? 'POST' : 'GET', authorize
   return { status: response.status, data: await response.json().catch(() => ({})), response };
 }
 
-test('admin creates shareable workspace instances; guests share chat and receive SSE without auth', async () => {
+async function connectSocket(mf, path) {
+  const response = await mf.dispatchFetch('http://localhost' + path, { headers: { Upgrade: 'websocket' } });
+  assert.equal(response.status, 101);
+  assert.ok(response.webSocket);
+  const socket = response.webSocket;
+  const messages = [];
+  socket.addEventListener('message', (event) => {
+    try { messages.push(JSON.parse(event.data)); } catch { /* Ignore invalid test frames. */ }
+  });
+  socket.accept();
+  return {
+    socket,
+    waitFor(predicate, timeoutMs = 4_000) {
+      const existing = messages.find(predicate);
+      if (existing) return Promise.resolve(existing);
+      return new Promise((resolve, reject) => {
+        const started = Date.now();
+        const poll = setInterval(() => {
+          const match = messages.find(predicate);
+          if (match) { clearInterval(poll); resolve(match); }
+          else if (Date.now() - started >= timeoutMs) { clearInterval(poll); reject(new Error('Timed out waiting for a WebSocket frame.')); }
+        }, 10);
+      });
+    },
+  };
+}
+
+test('admin creates shareable workspaces; guests share chat and receive snapshots over hibernatable WebSockets', async () => {
   const mf = new Miniflare(localOptions(false));
   try {
     const home = await mf.dispatchFetch('http://localhost/');
@@ -62,12 +89,22 @@ test('admin creates shareable workspace instances; guests share chat and receive
     assert.deepEqual((await request(mf, `/api/workspaces/${workspaceId}/info`)).data.workspace.title, 'Planning room');
 
     assert.deepEqual((await request(mf, `/api/workspaces/${workspaceId}/messages`)).data.messages, []);
-    const alice = await request(mf, `/api/workspaces/${workspaceId}/messages`, { authorName: 'Alice', text: 'Hello, workspace!', target: 'group' });
-    assert.equal(alice.status, 201);
-    const bob = await request(mf, `/api/workspaces/${workspaceId}/messages`, { authorName: 'Bob', text: 'Hi Alice.', target: 'group' });
-    assert.equal(bob.status, 201);
+    const alice = await connectSocket(mf, `/api/workspaces/${workspaceId}/socket`);
+    const bob = await connectSocket(mf, `/api/workspaces/${workspaceId}/socket`);
+    const initial = await alice.waitFor(frame => frame.type === 'snapshot');
+    assert.equal(initial.snapshot.workspace.title, 'Planning room');
+    const aliceRequest = { type: 'send', target: 'group', requestId: 'guest-alice-1', authorName: 'Alice', text: 'Hello, workspace!' };
+    alice.socket.send(JSON.stringify(aliceRequest));
+    await alice.waitFor(frame => frame.type === 'ack' && frame.requestId === aliceRequest.requestId);
+    await bob.waitFor(frame => frame.type === 'snapshot' && frame.snapshot.messages.some(message => message.text === 'Hello, workspace!'));
+    alice.socket.send(JSON.stringify(aliceRequest));
+    const bobRequest = { type: 'send', target: 'group', requestId: 'guest-bob-1', authorName: 'Bob', text: 'Hi Alice.' };
+    bob.socket.send(JSON.stringify(bobRequest));
+    await bob.waitFor(frame => frame.type === 'ack' && frame.requestId === bobRequest.requestId);
+    await alice.waitFor(frame => frame.type === 'snapshot' && frame.snapshot.messages.some(message => message.text === 'Hi Alice.'));
     const shared = await request(mf, `/api/workspaces/${workspaceId}/messages`);
     assert.deepEqual(shared.data.messages.map(message => message.authorName), ['Alice', 'Bob']);
+    assert.equal((await request(mf, `/api/workspaces/${workspaceId}/messages`, { authorName: 'Legacy', text: 'No longer accepted', target: 'group' })).status, 404);
 
     const second = await request(mf, '/api/admin/workspaces', { title: 'Separate project' }, 'POST', true);
     assert.deepEqual((await request(mf, `/api/workspaces/${second.data.workspace.id}/messages`)).data.messages, []);
@@ -75,15 +112,9 @@ test('admin creates shareable workspace instances; guests share chat and receive
     assert.equal(listed.status, 200);
     assert.equal(listed.data.workspaces.length, 2);
 
-    const stream = await mf.dispatchFetch(`http://localhost/api/workspaces/${workspaceId}/events`);
-    assert.equal(stream.status, 200);
-    assert.match(stream.headers.get('content-type'), /text\/event-stream/);
-    const reader = stream.body.getReader();
-    const first = await reader.read();
-    const frame = new TextDecoder().decode(first.value);
-    assert.match(frame, /Hello, workspace!/);
-    assert.match(frame, /Planning room/);
-    await reader.cancel();
+    assert.equal((await mf.dispatchFetch(`http://localhost/api/workspaces/${workspaceId}/events`)).status, 404);
+    alice.socket.close();
+    bob.socket.close();
 
     assert.deepEqual(await (await request(mf, `/api/workspaces/${workspaceId}/mcp`)).data, { configured: false, tools: [] });
     assert.equal((await request(mf, '/api/admin/mcp', { url: 'http://127.0.0.1/mcp' }, 'PUT', true)).status, 400);

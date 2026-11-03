@@ -4,10 +4,9 @@ import { describe, expect, it } from "vitest";
 describe("demo architecture", () => {
   it("keeps one room-scoped Durable Object and Pi Durable as the real agent runtime", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { dependencies?: Record<string, string> };
-    for (const dependency of ["@earendil-works/pi-durable", "@earendil-works/pi-ai", "@earendil-works/chord", "@earendil-works/pi-mcp", "agents"]) {
+    for (const dependency of ["@earendil-works/pi-durable", "@earendil-works/pi-ai", "@earendil-works/chord", "@earendil-works/pi-mcp", "agents", "hono"]) {
       expect(pkg.dependencies?.[dependency]).toBeTruthy();
     }
-    expect(pkg.dependencies?.hono).toBeUndefined();
     expect(existsSync("src/session/chat-room.ts")).toBe(true);
     expect(existsSync("src/session/harness.ts")).toBe(true);
     expect(existsSync("src/session/schedule-task.ts")).toBe(true);
@@ -40,11 +39,18 @@ describe("demo architecture", () => {
     expect(wrangler.exports.PiSession.state).toBe("deleted");
   });
 
-  it("uses Pi's conversation watch to stream durable agent progress", () => {
+  it("uses hibernatable WebSockets to broadcast Pi Durable conversation snapshots", () => {
     const room = readFileSync("src/session/chat-room.ts", "utf8");
     expect(room).toContain("root.watch(BACKGROUND_CONTEXT)");
     expect(room).toContain("watch.start");
-    expect(readFileSync("src/index.ts", "utf8")).toContain("text/event-stream");
+    expect(room).toContain("this.ctx.acceptWebSocket(server)");
+    expect(room).toContain("this.ctx.getWebSockets()");
+    expect(room).toContain("async webSocketMessage(");
+    expect(room).not.toContain("setInterval(");
+    const index = readFileSync("src/index.ts", "utf8");
+    expect(index).toContain('import { Hono } from "hono"');
+    expect(index).toContain("/socket");
+    expect(index).not.toContain("text/event-stream");
     expect(readFileSync("src/session/transcript.ts", "utf8")).toContain('view.docs["pi.live"]');
     expect(readFileSync("src/ui/page.ts", "utf8")).toContain('id="activityPanel"');
     expect(readFileSync("src/admin/demo-admin.ts", "utf8")).toContain("createWorkspace");

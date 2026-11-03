@@ -1,6 +1,6 @@
 # MultiPerson Chat with Agent
 
-A small Cloudflare Workers demo for shareable group-chat workspaces. An admin creates a workspace and shares its URL; anyone with that link can join without signing in. Each workspace has its own SQLite-backed `ChatRoom` Durable Object and Pi Durable conversation. The agent can answer, stream its activity, schedule reminders and follow-ups, and use one public MCP server shared by all workspaces.
+A small Cloudflare Workers demo for shareable group-chat workspaces. An admin creates a workspace and shares its URL; anyone with that link can join without signing in. Hono routes HTTP requests and WebSocket upgrades to a SQLite-backed `ChatRoom` Durable Object per workspace. Pi Durable owns each conversation; the agent can answer, stream its activity, schedule reminders and follow-ups, and use one public MCP server shared by all workspaces.
 
 This is a demo, not an authenticated chat product. A workspace URL is a bearer link: anyone who has it can read and post. The admin area is separately protected by one Worker secret.
 
@@ -37,14 +37,14 @@ Guest browser -> /w/<workspace-id> (public share link)
   -> Worker routes to ROOMS.getByName(workspace-id)
   -> ChatRoom Durable Object per workspace
        -> workspace metadata, Pi Durable Harness, and one conversation
-       -> group messages, agent turns, schedules, follow-ups, and SSE snapshots
+       -> group messages, agent turns, schedules, follow-ups, and hibernatable WebSocket snapshots
        -> reads the shared MCP URL from DemoAdmin
   -> Workers AI and optional public Streamable HTTP MCP server
 ```
 
-- `src/index.ts` — public workspace routes and admin-secret-guarded API.
+- `src/index.ts` — Hono HTTP routing, workspace lookup, WebSocket upgrade proxying, and admin-secret-guarded API.
 - `src/admin/demo-admin.ts` — workspace index and one global MCP configuration in a singleton Durable Object.
-- `src/session/chat-room.ts` — one workspace Durable Object; owns that workspace's Harness, conversation, transcript, tasks, and alarm lifecycle.
+- `src/session/chat-room.ts` — one workspace Durable Object; owns that workspace's Harness, conversation, transcript, tasks, alarm lifecycle, hibernatable WebSocket handlers, and Pi Durable broadcast watch.
 - `src/session/workspace-info.ts` — workspace ID/title/timestamp stored in the Pi Durable conversation state.
 - `src/session/harness.ts` — Workers AI provider, prompt, Pi tools, and durable task registration.
 - `src/session/transcript.ts` — projects Pi Durable entries and `pi.live` state into browser snapshots.
@@ -56,7 +56,7 @@ Guest browser -> /w/<workspace-id> (public share link)
 
 ### Agent streaming
 
-The workspace Durable Object watches the Pi Durable conversation and forwards snapshots over SSE. Partial assistant text streams in the chat transcript. The collapsible activity panel shows agent start/response status and named tool-call events, not response tokens; reconnecting receives the current run status.
+The workspace Durable Object maintains one Pi Durable conversation watch and broadcasts snapshots over hibernatable WebSockets. Partial assistant text streams in the chat transcript. The collapsible activity panel shows agent start/response status and named tool-call events, not response tokens. Idle Durable Objects can hibernate while sockets remain connected; after wake, the constructor rebuilds the Harness watch and broadcasts a current snapshot. The browser reconnects with backoff and retries unacknowledged sends using stable request IDs.
 
 ### Automatic follow-up
 
@@ -71,9 +71,8 @@ The admin UI connects and tests one public HTTPS Streamable HTTP MCP server, the
 Public, link-based guest routes:
 
 - `GET /w/:workspaceId` — chat UI for a created workspace.
+- `GET /api/workspaces/:workspaceId/socket` — hibernatable WebSocket for snapshots and guest sends. Client messages use `{ type: "send", target: "group" | "agent", requestId, authorName, text }`.
 - `GET /api/workspaces/:workspaceId/messages` — current transcript.
-- `GET /api/workspaces/:workspaceId/events` — SSE transcript and agent progress.
-- `POST /api/workspaces/:workspaceId/messages` — post to the group or queue an agent request.
 - `GET /api/workspaces/:workspaceId/mcp` — shared MCP tool status.
 
 Admin routes require `Authorization: Bearer <ADMIN_SECRET>`:
@@ -90,7 +89,7 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, SSE, status-only activity-panel rendering with tool names, MCP URL validation, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding and do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, status-only activity-panel rendering with tool names, MCP URL validation, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
 
 ## Deploy
 
