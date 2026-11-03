@@ -23,7 +23,7 @@ const output = (text: string) => ({ output: [{ type: "text" as const, text }] })
 export function createScheduleTools(operations: ScheduleToolOperations): ToolRegistration[] {
   const schedule = defineTool({
     name: "schedule",
-    description: "Schedule a reminder for this room. Provide either delaySeconds or an absolute Unix timestamp in milliseconds.",
+    description: "Use this whenever a guest asks for a reminder. For relative times, provide delaySeconds as a whole number (for example, five minutes is 300); use runAt only for an exact Unix timestamp in milliseconds. Do not claim the reminder was scheduled unless this tool succeeds.",
     parameters: Type.Object({
       instruction: Type.String({ minLength: 1, maxLength: 1000 }),
       delaySeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 31_622_400 })),
@@ -46,15 +46,16 @@ export function createScheduleTools(operations: ScheduleToolOperations): ToolReg
       if (existing) return output(`Scheduled reminder ${existing.id} for ${new Date(existing.runAt).toISOString()}.`);
       const created = await api.commit(async (tx) => {
         const intent = await tx.doc(ScheduleIntent, api.taskId);
-        if (intent.schedule) return intent.schedule;
+        if (intent.schedule) return { ...intent.schedule };
         const taskId = await tx.createTask(DeliverScheduledInstruction, {
           conversationId: api.conversationId,
           instruction,
           runAt,
           createdAt: now,
         }, { ownership: { kind: "conversation" }, background: true });
-        intent.schedule = { id: String(taskId), instruction, runAt };
-        return intent.schedule;
+        const createdSchedule = { id: String(taskId), instruction, runAt };
+        intent.schedule = createdSchedule;
+        return { ...createdSchedule };
       }, context);
       return output(`Scheduled reminder ${created.id} for ${new Date(created.runAt).toISOString()}.`);
     },

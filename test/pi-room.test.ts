@@ -6,6 +6,7 @@ import { STARTER_AGENT_MODEL, createStarterHarnessOptions } from "../src/session
 import { DeliverProactiveFollowUp, FollowUpCursor } from "../src/session/follow-up-task";
 import { messageNeedsFollowUp } from "../src/session/follow-up-classifier";
 import { DeliverScheduledInstruction } from "../src/session/schedule-task";
+import { createScheduleTools } from "../src/session/schedule-tools";
 import { snapshotFromView } from "../src/session/transcript";
 
 const fakeEnv = (run: (...args: unknown[]) => Promise<Response>): Env => ({
@@ -30,7 +31,63 @@ function response(text: string): Response {
   ].join("\n\n"), { headers: { "content-type": "text/event-stream" } });
 }
 
+function scheduleToolCallResponse(): Response {
+  return new Response([
+    `data: ${JSON.stringify({ choices: [{ index: 0, message: { role: "assistant", tool_calls: [{ id: "schedule-call-1", type: "function", function: { name: "schedule", arguments: JSON.stringify({ instruction: "Check the project plan", delaySeconds: 300 }) } }] }, finish_reason: "tool_calls" }] })}`,
+    "data: [DONE]",
+    "",
+  ].join("\n\n"), { headers: { "content-type": "text/event-stream" } });
+}
+
 describe("Pi Durable room agent", () => {
+  it("turns a five-minute schedule tool call into one durable reminder task", async () => {
+    const intent: { schedule?: { id: string; instruction: string; runAt: number } } = {};
+    let createdTask: { task: unknown; input: unknown; options: unknown } | undefined;
+    const schedule = createScheduleTools({ list: async () => [], cancel: async () => false })[0];
+    const now = Date.now();
+    const api = {
+      taskId: 7,
+      conversationId: 1,
+      snapshot: async () => undefined,
+      commit: async (change: (tx: never) => unknown) => change({
+        doc: async () => intent,
+        createTask: async (task: unknown, input: unknown, options: unknown) => {
+          createdTask = { task, input, options };
+          return 27;
+        },
+      } as never),
+    };
+
+    const result = await schedule.execute({ instruction: "Check the project plan", delaySeconds: 300 }, api as never, BACKGROUND_CONTEXT);
+    expect(createdTask?.task).toBe(DeliverScheduledInstruction);
+    expect(createdTask?.input).toMatchObject({ conversationId: 1, instruction: "Check the project plan", createdAt: expect.any(Number) });
+    const runAt = (createdTask?.input as { runAt: number }).runAt;
+    expect(runAt).toBeGreaterThanOrEqual(now + 300_000);
+    expect(runAt).toBeLessThanOrEqual(Date.now() + 300_000);
+    expect(createdTask?.options).toMatchObject({ ownership: { kind: "conversation" }, background: true });
+    expect(intent.schedule).toMatchObject({ id: "27", instruction: "Check the project plan", runAt });
+    expect(result.output?.[0]).toMatchObject({ type: "text", text: expect.stringContaining("Scheduled reminder 27") });
+  });
+
+  it("runs the schedule tool through a model tool call and persists exactly one reminder", async () => {
+    const run = vi.fn()
+      .mockResolvedValueOnce(scheduleToolCallResponse())
+      .mockResolvedValueOnce(response("The reminder is scheduled."));
+    const harness = await Harness.open(new MemoryStorage(), options(fakeEnv(run)), BACKGROUND_CONTEXT);
+    try {
+      const root = await harness.root(BACKGROUND_CONTEXT);
+      harness.resume();
+      const submitted = await root.submit({ type: "input", requestId: "schedule-through-agent", content: "Guest: Set a reminder in five minutes." }, BACKGROUND_CONTEXT);
+      expect((await submitted.wait(BACKGROUND_CONTEXT)).status).toBe("done");
+      expect(run).toHaveBeenCalledTimes(2);
+      const scheduled = (await harness.inspect(BACKGROUND_CONTEXT)).tasks.filter((task) => task.record.kind === DeliverScheduledInstruction.definition.name);
+      expect(scheduled).toHaveLength(1);
+      expect((scheduled[0].record.input as { instruction: string }).instruction).toBe("Check the project plan");
+      const view = await root.context(BACKGROUND_CONTEXT);
+      expect(view.entries.some((entry) => entry.kind === "pi.assistant" && entry.model?.some((message) => message.role === "assistant" && message.content.some((part) => part.type === "text" && part.text === "The reminder is scheduled.")))).toBe(true);
+    } finally { await harness.close(BACKGROUND_CONTEXT); }
+  });
+
   it("uses Workers AI and registers reminder plus public MCP tools", async () => {
     const run = vi.fn(async () => response("A Pi-native answer."));
     const harness = await Harness.open(new MemoryStorage(), options(fakeEnv(run)), BACKGROUND_CONTEXT);

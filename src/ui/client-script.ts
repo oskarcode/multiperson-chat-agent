@@ -123,28 +123,51 @@ export const appClientScript = String.raw`
         addActivity(receivedAnswer ? 'Agent response received' : 'Agent run ended');
       }
     }
+    function initials(name) {
+      return (name || 'Guest').trim().split(/\s+/u).slice(0, 2).map((part) => Array.from(part)[0]?.toUpperCase() || '').join('') || 'G';
+    }
     function renderMessages() {
       const box = $('messages');
       const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
       box.replaceChildren();
       if (!state.messages.length && !state.progress.partialText) {
         const empty = document.createElement('div'); empty.className = 'empty';
-        const text = document.createElement('div'); text.innerHTML = '<strong>Welcome to this workspace</strong><span>Send a message to everyone, or ask the agent for help.</span>';
-        empty.append(text); box.append(empty);
+        const mark = document.createElement('span'); mark.className = 'empty-mark'; mark.textContent = '✦'; mark.setAttribute('aria-hidden', 'true');
+        const title = document.createElement('strong'); title.textContent = 'Start the conversation';
+        const description = document.createElement('span'); description.textContent = 'Send a note to everyone here, or ask the agent to help move things forward.';
+        const copy = document.createElement('div'); copy.className = 'empty-copy'; copy.append(title, description);
+        empty.append(mark, copy); box.append(empty);
       }
       const messages = [...state.messages];
       if (state.progress.partialText) messages.push({ id: 'agent-streaming', authorName: 'Group Agent', kind: 'agent', text: state.progress.partialText, streaming: true });
       for (const message of messages) {
         const item = document.createElement('article');
         item.className = 'message ' + message.kind + (message.streaming ? ' streaming' : '') + (message.authorName === state.name ? ' mine' : '');
+        const avatar = document.createElement('span');
+        avatar.className = 'speaker-avatar ' + (message.kind === 'agent' ? 'agent-avatar' : message.kind === 'system' ? 'system-avatar' : 'guest-avatar');
+        avatar.textContent = message.kind === 'agent' ? '✦' : message.kind === 'system' ? '·' : initials(message.authorName);
+        avatar.setAttribute('aria-hidden', 'true');
+        const body = document.createElement('div'); body.className = 'message-body';
         const name = document.createElement('div'); name.className = 'byline'; name.textContent = message.authorName;
         const content = document.createElement('div'); content.className = 'message-text';
         if (message.kind === 'agent') { content.classList.add('markdown'); renderAgentMarkdown(content, message.text); }
         else content.textContent = message.text;
-        item.append(name, content); box.append(item);
+        body.append(name, content); item.append(avatar, body); box.append(item);
+      }
+      if (state.progress.active) {
+        const thinking = document.createElement('div'); thinking.className = 'agent-thinking'; thinking.setAttribute('role', 'status');
+        const avatar = document.createElement('span'); avatar.className = 'speaker-avatar agent-avatar'; avatar.textContent = '✦'; avatar.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span'); label.textContent = state.progress.phase === 'using-tools' ? 'Group Agent is using tools' : state.progress.phase === 'waiting' ? 'Group Agent is waiting' : 'Group Agent is thinking';
+        const dots = document.createElement('span'); dots.className = 'thinking-dots'; dots.setAttribute('aria-hidden', 'true'); dots.textContent = '···';
+        thinking.append(avatar, label, dots); box.append(thinking);
       }
       if (nearBottom) box.scrollTop = box.scrollHeight;
       renderProgress();
+    }
+    function setConnectionStatus(message, status = 'connecting') {
+      const element = $('status');
+      element.textContent = message;
+      element.closest('.connection-pill')?.setAttribute('data-state', status);
     }
     function renderProgress() {
       const panel = $('activityPanel');
@@ -206,11 +229,11 @@ export const appClientScript = String.raw`
     }
     function connectSocket() {
       if (!state.roomId) {
-        $('status').textContent = 'Open a workspace share link to join, or ask the admin to create one at /admin.';
+        setConnectionStatus('Open a workspace share link to join, or ask the admin to create one at /admin.', 'disconnected');
         setSendEnabled();
         return;
       }
-      $('status').textContent = 'Connecting to the shared workspace…';
+      setConnectionStatus('Connecting to the shared workspace…', 'connecting');
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(protocol + '//' + location.host + socketPath());
       state.socket = socket;
@@ -219,7 +242,7 @@ export const appClientScript = String.raw`
         if (state.socket !== socket) return;
         state.reconnectDelay = 500;
         const title = $('workspaceTitle').textContent === 'MultiPerson Chat' ? 'workspace' : '“' + $('workspaceTitle').textContent + '”';
-        $('status').textContent = 'Connected to public ' + title + '. Anyone with this link can read and post.';
+        setConnectionStatus('Connected to public ' + title + '. Anyone with this link can read and post.', 'connected');
         setSendEnabled();
         for (const pending of state.pending.values()) socket.send(JSON.stringify(pending));
       };
@@ -233,7 +256,7 @@ export const appClientScript = String.raw`
             if (!pending) return;
             state.pending.delete(message.requestId);
             if ($('composer').value.trim() === pending.text) $('composer').value = '';
-            if (pending.target === 'agent') $('status').textContent = 'Agent request queued.';
+            if (pending.target === 'agent') setConnectionStatus('Agent request queued.', 'connected');
             setSendEnabled();
             return;
           }
@@ -244,11 +267,11 @@ export const appClientScript = String.raw`
           }
         } catch (error) { $('error').textContent = 'Could not read the workspace update: ' + error.message; }
       };
-      socket.onerror = () => { if (state.socket === socket) $('status').textContent = 'Workspace connection interrupted; reconnecting…'; };
+      socket.onerror = () => { if (state.socket === socket) setConnectionStatus('Workspace connection interrupted; reconnecting…', 'reconnecting'); };
       socket.onclose = () => {
         if (state.socket !== socket) return;
         setSendEnabled();
-        $('status').textContent = 'Workspace connection interrupted; reconnecting…';
+        setConnectionStatus('Workspace connection interrupted; reconnecting…', 'reconnecting');
         if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
         const delay = state.reconnectDelay;
         state.reconnectDelay = Math.min(state.reconnectDelay * 2, 10_000);
@@ -273,8 +296,11 @@ export const appClientScript = String.raw`
       catch (error) { $('error').textContent = error.message; }
     }
     $('authorName').value = localStorage.getItem('chat-name') || 'Guest';
+    state.name = $('authorName').value.trim() || 'Guest';
+    document.querySelector('.profile-avatar').textContent = initials(state.name);
     $('authorName').addEventListener('input', () => {
       state.name = $('authorName').value.trim() || 'Guest';
+      document.querySelector('.profile-avatar').textContent = initials(state.name);
       localStorage.setItem('chat-name', state.name);
     });
     $('sendGroup').onclick = () => send('group'); $('sendAgent').onclick = () => send('agent');

@@ -46,6 +46,8 @@ try {
   await expect(alice.locator('#workspaceTitle')).toHaveText('Family room');
   await expect(alice.locator('.workspace-sidebar #authorName')).toBeVisible();
   await expect(alice.locator('.workspace-sidebar .mcp-panel')).toBeVisible();
+  await expect(alice.locator('.compose-meta .model-chip')).toHaveText('Workers AI');
+  await expect(alice.locator('.compose-toolbar .actions button')).toHaveCount(2);
   const sidebarBounds = await alice.locator('.workspace-sidebar').boundingBox();
   const chatBounds = await alice.locator('.chat').boundingBox();
   expect(sidebarBounds && chatBounds && chatBounds.x > sidebarBounds.width && chatBounds.width > sidebarBounds.width).toBe(true);
@@ -57,6 +59,7 @@ try {
   await alice.locator('#composer').fill('Hello to everyone in this workspace.');
   await alice.locator('#sendGroup').click();
   await expect(alice.locator('#messages')).toContainText('Hello to everyone in this workspace.');
+  await expect(alice.locator('.message.group.mine .speaker-avatar')).toHaveText('A');
   await expect(bob.locator('#messages')).toContainText('Hello to everyone in this workspace.');
   await bob.locator('#composer').fill('This workspace is shared.');
   await bob.locator('#sendGroup').click();
@@ -106,6 +109,7 @@ try {
   });
   await progressPage.goto(base + projectPath);
   await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
+  await expect(progressPage.locator('.agent-thinking')).toContainText('Group Agent is using tools');
   await expect(progressPage.locator('#messages strong')).toHaveText('Short answer');
   await expect(progressPage.locator('#messages ul li')).toHaveCount(2);
   await expect(progressPage.locator('#messages a')).toHaveAttribute('rel', 'noopener noreferrer');
@@ -124,6 +128,7 @@ try {
 
   await bob.setViewportSize({ width: 390, height: 844 });
   await expect(bob.locator('#composer')).toBeVisible();
+  await expect(bob.locator('.workspace-sidebar .mcp-panel')).toBeVisible();
   const mobileSidebarBounds = await bob.locator('.workspace-sidebar').boundingBox();
   const mobileChatBounds = await bob.locator('.chat').boundingBox();
   expect(mobileSidebarBounds && mobileChatBounds && mobileChatBounds.y > mobileSidebarBounds.height).toBe(true);
