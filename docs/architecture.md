@@ -9,7 +9,7 @@ Admin browser
   -> Worker /admin + /api/admin/*
   -> ADMIN_SECRET checked in the Worker
   -> singleton DemoAdmin Durable Object
-       -> workspace index and shared MCP URL
+       -> workspace index and shared list of named MCP servers
        -> creates a random workspace ID and calls ChatRoom.initializeWorkspace()
 
 Guest browser -> /w/<workspaceId>
@@ -19,11 +19,11 @@ Guest browser -> /w/<workspaceId>
        -> Pi Durable Harness over this object's SQLite storage
        -> one root conversation plus workspace metadata
        -> chat, agent turns, schedule/follow-up tasks, alarms, hibernatable WebSocket handlers/watch
-       -> reads the global MCP URL from DemoAdmin
-  -> Workers AI and optional public MCP server
+       -> reads the global MCP server list from DemoAdmin
+  -> Workers AI and optional public MCP servers
 ```
 
-A workspace's random ID maps deterministically to one `ChatRoom`, so its group transcript, agent state, scheduled work, and `WorkspaceInfoDocument` stay together. The singleton `DemoAdmin` contains the index needed to list/create share links and one MCP URL shared across every workspace. It does not hold workspace transcripts or Harness sessions.
+A workspace's random ID maps deterministically to one `ChatRoom`, so its group transcript, agent state, scheduled work, and `WorkspaceInfoDocument` stay together. The singleton `DemoAdmin` contains the index needed to list/create share links and up to eight named MCP server configurations shared across every workspace. It does not hold workspace transcripts or Harness sessions.
 
 ## Agent and streaming ownership
 
@@ -43,19 +43,21 @@ Deleting a workspace first marks its index record as pending deletion, which imm
 
 ## Shared MCP
 
-`DemoAdmin` stores one global MCP URL, which all workspace objects read. The admin form validates the destination and discovers its tools before saving it. The initial feature accepts only public HTTPS Streamable HTTP endpoints without OAuth or stored credentials. Guests can see advertised tool names, and the Pi agent can call only a tool discovered from that shared server. Admin-only configuration prevents anonymous users from turning the Worker into an arbitrary outbound request proxy.
+`DemoAdmin` stores up to eight named public MCP server configurations, which all workspace objects read. On first access, it migrates the previous single URL from the legacy storage key or `MCP_URL` Worker variable into the new list. Adding a connector validates the public HTTPS URL and discovers its tools before saving. The feature does not support OAuth, private endpoints, or stored credentials. Guests can see server names and tool names, but not endpoint URLs.
+
+Each discovered tool carries its `serverId` and `serverName` in the Pi tool context. The agent's `call_mcp_tool` accepts the server ID, server name, tool name, and arguments; execution revalidates that exact server/tool pair is still configured and advertised before making the outbound call. This permits identical tool names on different servers without routing ambiguity. A failed connector is reported independently, so tools from other working servers remain available. Admin-only connector management prevents anonymous users from turning the Worker into an arbitrary outbound request proxy.
 
 ## Main files
 
 - `src/index.ts` — Hono routing, workspace lookup/deletion, admin-secret validation, and WebSocket upgrade proxying.
-- `src/admin/demo-admin.ts` — global MCP URL and workspace index; creates workspaces and coordinates deletion cleanup.
+- `src/admin/demo-admin.ts` — global MCP server list and workspace index; migrates legacy single-server configuration and coordinates workspace deletion.
 - `src/session/chat-room.ts` — workspace state, Pi Durable conversation, tasks, MCP calls, hibernatable socket handlers, and the shared snapshot watch.
 - `src/session/workspace-info.ts` — workspace metadata in Pi Durable state.
 - `src/session/harness.ts` — Workers AI model, prompt sections, tools, and durable task registrations.
 - `src/session/transcript.ts` — Pi entries/`pi.live` projection and room prompt context.
 - `src/session/schedule-task.ts`, `src/session/schedule-tools.ts` — durable reminders.
 - `src/session/follow-up-classifier.ts`, `src/session/follow-up-task.ts` — proactive follow-ups.
-- `src/integrations/mcp.ts` — public Streamable HTTP MCP client.
+- `src/integrations/mcp.ts` — public Streamable HTTP MCP client; `src/session/capability-tools.ts` routes namespaced tool calls to their configured server.
 - `src/ui/` — no-build guest chat, live activity panel, and secret-gated admin page.
 - `worker-configuration.d.ts` — generated Worker binding types.
 

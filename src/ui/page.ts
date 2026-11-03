@@ -21,7 +21,7 @@ export const appPage = String.raw`
       <details class="mcp-panel">
         <summary><span class="mcp-summary-title"><span class="mcp-icon" aria-hidden="true">⌘</span><span>Connected tools</span></span><span id="mcpSummary" class="tool-status">Checking…</span></summary>
         <div class="mcp-content">
-          <p class="muted">One public MCP server is shared across workspaces. The agent can use its tools when helpful.</p>
+          <p class="muted">Configured public MCP servers and their tools are shared across workspaces.</p>
           <button id="refreshMcp" class="text-button" type="button">Refresh tool list <span aria-hidden="true">↻</span></button>
           <p id="mcpStatus" class="mcp-status-copy" role="status"></p>
           <ul id="mcpTools" class="mcp-tools"></ul>

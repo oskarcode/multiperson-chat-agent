@@ -1,6 +1,6 @@
 # MultiPerson Chat with Agent
 
-A small Cloudflare Workers demo for shareable group-chat workspaces. An admin creates a workspace and shares its URL; anyone with that link can join without signing in. Hono routes HTTP requests and WebSocket upgrades to a SQLite-backed `ChatRoom` Durable Object per workspace. Pi Durable owns each conversation; the agent can answer, stream its activity, schedule reminders and follow-ups, and use one public MCP server shared by all workspaces.
+A small Cloudflare Workers demo for shareable group-chat workspaces. An admin creates a workspace and shares its URL; anyone with that link can join without signing in. Hono routes HTTP requests and WebSocket upgrades to a SQLite-backed `ChatRoom` Durable Object per workspace. Pi Durable owns each conversation; the agent can answer, stream its activity, schedule reminders and follow-ups, and use up to eight named public MCP servers shared by all workspaces.
 
 This is a demo, not an authenticated chat product. A workspace URL is a bearer link: anyone who has it can read and post. The admin area is separately protected by one Worker secret.
 
@@ -9,7 +9,7 @@ This is a demo, not an authenticated chat product. A workspace URL is a bearer l
 1. Open `/admin`, enter the admin secret, and create a named workspace. Admins can also permanently delete a workspace and its chat data.
 2. Copy its `/w/<id>` link and share it with guests. The link selects the workspace; guests only choose a display name and do not need accounts or a secret.
 3. Chat together or ask the workspace agent for help. The partial answer streams in the chat; **Live agent activity** shows run status and tool calls without duplicating response tokens.
-4. Optionally connect one public Streamable HTTP MCP endpoint in the admin UI. Its discovered tools become available in every workspace.
+4. Optionally connect up to eight named public Streamable HTTP MCP endpoints in the admin UI. Their discovered tools become available in every workspace, with server IDs distinguishing duplicate tool names.
 5. Ask the agent to schedule a reminder. Pi Durable stores the task and the room Durable Object wakes when it is due.
 
 ## Run locally
@@ -30,7 +30,7 @@ Workers AI is configured in `wrangler.jsonc` with default model `@cf/zai-org/glm
 Admin browser
   -> Worker checks ADMIN_SECRET
   -> DemoAdmin Durable Object
-       -> workspace index and global MCP URL
+       -> workspace index and global list of named MCP servers
        -> creates a random workspace ID and initializes its ChatRoom
 
 Guest browser -> /w/<workspace-id> (public share link)
@@ -38,12 +38,12 @@ Guest browser -> /w/<workspace-id> (public share link)
   -> ChatRoom Durable Object per workspace
        -> workspace metadata, Pi Durable Harness, and one conversation
        -> group messages, agent turns, schedules, follow-ups, and hibernatable WebSocket snapshots
-       -> reads the shared MCP URL from DemoAdmin
-  -> Workers AI and optional public Streamable HTTP MCP server
+       -> reads the shared MCP server list from DemoAdmin
+  -> Workers AI and optional public Streamable HTTP MCP servers
 ```
 
 - `src/index.ts` — Hono HTTP routing, workspace lookup, WebSocket upgrade proxying, and admin-secret-guarded API.
-- `src/admin/demo-admin.ts` — workspace index and one global MCP configuration in a singleton Durable Object.
+- `src/admin/demo-admin.ts` — workspace index and up to eight global MCP server configurations in a singleton Durable Object; migrates the previous single-server setting.
 - `src/session/chat-room.ts` — one workspace Durable Object; owns that workspace's Harness, conversation, transcript, tasks, alarm lifecycle, hibernatable WebSocket handlers, and Pi Durable broadcast watch.
 - `src/session/workspace-info.ts` — workspace ID/title/timestamp stored in the Pi Durable conversation state.
 - `src/session/harness.ts` — Workers AI provider, prompt, Pi tools, and durable task registration.
@@ -64,7 +64,7 @@ After a group message, Workers AI reviews the recent conversation for unanswered
 
 ### MCP configuration
 
-The admin UI connects and tests one public HTTPS Streamable HTTP MCP server, then saves the endpoint globally for all workspaces. Guests can see the advertised tools and the agent can call them. OAuth, private endpoints, and saved credentials are not supported. The admin secret is required to change this outbound destination.
+The admin UI can connect up to eight named public HTTPS Streamable HTTP MCP servers, tests each endpoint and discovers its tools before saving it globally for all workspaces. Each tool is associated with its server ID, so two servers may advertise the same tool name without ambiguity. Removing a server withdraws its tools from agent use across all workspaces. Guests can see server names and advertised tools, but not endpoint URLs. OAuth, private endpoints, and saved credentials are not supported. The admin secret is required to change these outbound destinations. Existing deployments migrate their previous single MCP URL into the new connector list on first access.
 
 ## API
 
@@ -73,14 +73,16 @@ Public, link-based guest routes:
 - `GET /w/:workspaceId` — chat UI for a created workspace.
 - `GET /api/workspaces/:workspaceId/socket` — hibernatable WebSocket for snapshots and guest sends. Client messages use `{ type: "send", target: "group" | "agent", requestId, authorName, text }`.
 - `GET /api/workspaces/:workspaceId/messages` — current transcript.
-- `GET /api/workspaces/:workspaceId/mcp` — shared MCP tool status.
+- `GET /api/workspaces/:workspaceId/mcp` — shared MCP server and tool status.
 
 Admin routes require `Authorization: Bearer <ADMIN_SECRET>`:
 
-- `GET /api/admin/state` — list workspaces and current global MCP status.
+- `GET /api/admin/state` — list workspaces and MCP connector statuses.
 - `POST /api/admin/workspaces` — create and initialize a named workspace.
 - `DELETE /api/admin/workspaces/:workspaceId` — disable the share link and permanently clear the workspace conversation, tasks, and alarm.
-- `PUT /api/admin/mcp` — connect/test a public endpoint, or disconnect with an empty URL.
+- `POST /api/admin/mcp-servers` — validate, discover, and add a named public MCP server.
+- `DELETE /api/admin/mcp-servers/:serverId` — remove a shared MCP server.
+- `PUT /api/admin/mcp` — legacy compatibility route for older single-server admin clients; current UI uses the multi-server routes.
 
 ## Checks
 
@@ -89,7 +91,7 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, status-only activity-panel rendering with tool names, MCP URL validation, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, status-only activity-panel rendering with tool names, MCP URL validation, multi-server persistence and migration, duplicate tool-name routing, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
 
 ## Deploy
 
@@ -103,4 +105,4 @@ The prior deployment already retired the old `MultiPersonChat` and `PiSession` c
 
 ## Production boundary
 
-There is no guest authentication, workspace membership, or private-room ACL. The share URL grants read/write access. Protect the single admin secret, and rotate it if it is exposed. Public HTTPS MCP endpoints and their tools are shared with every guest workspace. Add identity, authorization, rate limits, and abuse controls before using this demo for sensitive or production traffic.
+There is no guest authentication, workspace membership, or private-room ACL. The share URL grants read/write access. Protect the single admin secret, and rotate it if it is exposed. Up to eight public HTTPS MCP endpoints and their tools are shared with every guest workspace. Add identity, authorization, rate limits, and abuse controls before using this demo for sensitive or production traffic.

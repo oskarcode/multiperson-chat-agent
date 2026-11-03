@@ -15,12 +15,43 @@ try {
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
   const errors = [];
+  const mcpFixtures = [
+    { id: '00000000-0000-4000-8000-000000000001', name: 'Product docs', url: 'https://docs.example.com/mcp', tools: [{ name: 'search', title: 'Search docs' }] },
+    { id: '00000000-0000-4000-8000-000000000002', name: 'Code search', url: 'https://code.example.com/mcp', tools: [{ name: 'search', title: 'Search source' }] },
+  ];
   for (const page of [admin, alice, bob]) page.on('pageerror', error => errors.push(error.message));
+  await admin.route('**/api/admin/state', async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.mcpServers = mcpFixtures;
+    await route.fulfill({ response, body: JSON.stringify(data) });
+  });
+  await admin.route('**/api/admin/mcp-servers**', async route => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === 'POST') {
+      const input = request.postDataJSON();
+      if (input.url === 'https://127.0.0.1/mcp') return route.continue();
+      const server = { id: '00000000-0000-4000-8000-000000000003', name: input.name, url: input.url, tools: [{ name: 'status', title: 'Get status' }] };
+      mcpFixtures.push(server);
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ server }) });
+    }
+    if (request.method() === 'DELETE') {
+      const id = pathname.split('/').at(-1);
+      const index = mcpFixtures.findIndex(server => server.id === id);
+      if (index >= 0) mcpFixtures.splice(index, 1);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ removed: index >= 0 }) });
+    }
+    return route.continue();
+  });
 
   await admin.goto(base + '/admin');
   await admin.locator('#adminSecret').fill('test-admin-secret');
   await admin.locator('#unlockForm button[type="submit"]').click();
   await expect(admin.locator('#adminContent')).toBeVisible();
+  await expect(admin.locator('#mcpServers .mcp-server-item')).toHaveCount(2);
+  await expect(admin.locator('#mcpServers')).toContainText('Product docs');
+  await expect(admin.locator('#mcpServers')).toContainText('Code search');
   await admin.locator('#workspaceTitle').fill('Family room');
   await admin.locator('#workspaceForm button').click();
   await expect(admin.locator('#workspaces')).toContainText('Family room');
@@ -33,9 +64,19 @@ try {
   await expect(admin.locator('#workspaces')).toContainText('Project room');
   const projectPath = await admin.locator('#workspaces a').first().getAttribute('href');
 
+  await admin.locator('#mcpName').fill('Invalid endpoint');
   await admin.locator('#mcpUrl').fill('https://127.0.0.1/mcp');
   await admin.locator('#mcpForm button[type="submit"]').click();
   await expect(admin.locator('#mcpStatus')).toContainText('public DNS hostname');
+  await admin.locator('#mcpName').fill('Status API');
+  await admin.locator('#mcpUrl').fill('https://status.example.com/mcp');
+  await admin.locator('#mcpForm button[type="submit"]').click();
+  await expect(admin.locator('#mcpServers .mcp-server-item')).toHaveCount(3);
+  await expect(admin.locator('#mcpServers')).toContainText('Status API');
+  admin.once('dialog', dialog => dialog.accept());
+  await admin.locator('#mcpServers .mcp-server-item').first().getByRole('button', { name: 'Remove server' }).click();
+  await expect(admin.locator('#mcpServers .mcp-server-item')).toHaveCount(2);
+  await expect(admin.locator('#mcpServers')).not.toContainText('Product docs');
 
   await alice.goto(base + familyPath);
   await expect(alice.locator('#authorName')).toBeVisible();

@@ -116,11 +116,42 @@ test('admin creates shareable workspaces; guests share chat and receive snapshot
     alice.socket.close();
     bob.socket.close();
 
-    assert.deepEqual(await (await request(mf, `/api/workspaces/${workspaceId}/mcp`)).data, { configured: false, tools: [] });
-    assert.equal((await request(mf, '/api/admin/mcp', { url: 'http://127.0.0.1/mcp' }, 'PUT', true)).status, 400);
+    assert.deepEqual(await (await request(mf, `/api/workspaces/${workspaceId}/mcp`)).data, { configured: false, servers: [], tools: [] });
+    assert.equal((await request(mf, '/api/admin/mcp-servers', { name: 'Invalid endpoint', url: 'http://127.0.0.1/mcp' }, 'POST', true)).status, 400);
     const disconnected = await request(mf, '/api/admin/mcp', { url: '' }, 'PUT', true);
     assert.equal(disconnected.status, 200);
     assert.equal(disconnected.data.configured, false);
+
+    const adminNamespace = await mf.getDurableObjectNamespace('ADMIN');
+    const control = adminNamespace.getByName('mcp-concurrency-test');
+    const [firstServer, secondServer] = await Promise.all([
+      control.addMcpServer({ name: 'Docs', url: 'https://docs.example.com/mcp' }),
+      control.addMcpServer({ name: 'Search', url: 'https://search.example.com/mcp' }),
+    ]);
+    const configuredServers = await control.getMcpServers();
+    assert.equal(configuredServers.length, 2);
+    assert.deepEqual(new Set(configuredServers.map(server => server.id)), new Set([firstServer.id, secondServer.id]));
+    assert.equal(await control.removeMcpServer(firstServer.id), true);
+    assert.deepEqual((await control.getMcpServers()).map(server => server.id), [secondServer.id]);
+    assert.equal(await control.removeMcpServer('00000000-0000-0000-0000-000000000000'), false);
+
+    const globalControl = adminNamespace.getByName('global');
+    const existingServer = await globalControl.addMcpServer({ name: 'Existing connector', url: 'https://existing.example.com/mcp' });
+    const duplicateName = await request(mf, '/api/admin/mcp-servers', { name: 'existing CONNECTOR', url: 'https://another.example.com/mcp' }, 'POST', true);
+    assert.equal(duplicateName.status, 409);
+    const removedServer = await request(mf, '/api/admin/mcp-servers/' + existingServer.id, undefined, 'DELETE', true);
+    assert.equal(removedServer.status, 200);
+    assert.equal((await globalControl.getMcpServers()).length, 0);
+
+    const legacyMf = new Miniflare(localOptions(false, { MCP_URL: 'https://legacy.example.com/mcp' }));
+    try {
+      const legacyAdmin = (await legacyMf.getDurableObjectNamespace('ADMIN')).getByName('global');
+      const migratedServers = await legacyAdmin.getMcpServers();
+      assert.equal(migratedServers.length, 1);
+      assert.equal(migratedServers[0].name, 'legacy.example.com');
+      assert.equal(migratedServers[0].url, 'https://legacy.example.com/mcp');
+      assert.deepEqual(await legacyAdmin.getMcpServers(), migratedServers);
+    } finally { await legacyMf.dispose(); }
     assert.equal((await request(mf, '/api/admin/workspaces/' + workspaceId, undefined, 'DELETE')).status, 401);
     const deleted = await request(mf, '/api/admin/workspaces/' + workspaceId, undefined, 'DELETE', true);
     assert.equal(deleted.status, 200);

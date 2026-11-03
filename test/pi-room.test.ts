@@ -7,7 +7,7 @@ import { DeliverProactiveFollowUp, FollowUpCursor } from "../src/session/follow-
 import { messageNeedsFollowUp } from "../src/session/follow-up-classifier";
 import { DeliverScheduledInstruction } from "../src/session/schedule-task";
 import { createScheduleTools } from "../src/session/schedule-tools";
-import { snapshotFromView } from "../src/session/transcript";
+import { promptContext, snapshotFromView } from "../src/session/transcript";
 
 const fakeEnv = (run: (...args: unknown[]) => Promise<Response>): Env => ({
   AI: { run },
@@ -18,7 +18,7 @@ const options = (env: Env) => createStarterHarnessOptions(env, {
   list: async () => [],
   cancel: async () => false,
 }, {
-  listMcpTools: async () => [{ name: "search", description: "Search a public source" }],
+  listMcpTools: async () => [{ serverId: "docs-server", serverName: "Public docs", name: "search", description: "Search a public source" }],
   callMcpTool: async () => ({ ok: true }),
 });
 
@@ -40,6 +40,15 @@ function scheduleToolCallResponse(): Response {
 }
 
 describe("Pi Durable room agent", () => {
+  it("names MCP server identity in the prompt when tool names overlap", () => {
+    const context = promptContext([], [
+      { serverId: "docs-server", serverName: "Product docs", name: "search" },
+      { serverId: "code-server", serverName: "Code search", name: "search" },
+    ]);
+    expect(context).toContain("serverId=docs-server · server=Product docs · tool=search");
+    expect(context).toContain("serverId=code-server · server=Code search · tool=search");
+  });
+
   it("turns a five-minute schedule tool call into one durable reminder task", async () => {
     const intent: { schedule?: { id: string; instruction: string; runAt: number } } = {};
     let createdTask: { task: unknown; input: unknown; options: unknown } | undefined;
@@ -200,12 +209,12 @@ describe("Pi Durable room agent", () => {
       entries: [{
         kind: "pi.assistant",
         model: [{ role: "assistant", content: [{
-          type: "toolCall", id: "tool-call-1", name: "call_mcp_tool", arguments: { toolName: "search", args: { query: "secret query" } },
+          type: "toolCall", id: "tool-call-1", name: "call_mcp_tool", arguments: { serverId: "docs-server", serverName: "Public docs", toolName: "search", args: { query: "secret query" } },
         }] }],
       }],
     } as never);
     expect(snapshot.progress.phase).toBe("using-tools");
-    expect(snapshot.progress.tools).toEqual([{ id: "tool-call-1", name: "search", status: "running" }]);
+    expect(snapshot.progress.tools).toEqual([{ id: "tool-call-1", name: "Public docs · search", status: "running" }]);
     expect(snapshot.progress.partialText).toBe("");
   });
 

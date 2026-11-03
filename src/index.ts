@@ -27,6 +27,12 @@ function roomId(value: string): string {
   return decoded;
 }
 
+function mcpServerId(value: string): string {
+  const decoded = decodeURIComponent(value);
+  if (!/^[0-9a-f-]{36}$/iu.test(decoded)) throw new Error("Invalid MCP server ID.");
+  return decoded;
+}
+
 async function bodyObject(request: Request): Promise<Record<string, unknown>> {
   const value: unknown = await request.json();
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Send a JSON object.");
@@ -63,13 +69,20 @@ async function adminApi(request: Request, env: Env, url: URL): Promise<Response>
   const control = env.ADMIN.getByName("global");
   try {
     if (url.pathname === "/api/admin/state" && request.method === "GET") {
-      const [workspaces, mcpUrl] = await Promise.all([control.listWorkspaces(), control.getMcpUrl()]);
-      const mcp = { url: mcpUrl, configured: Boolean(mcpUrl), tools: [] as Awaited<ReturnType<typeof listMcpTools>>, error: undefined as string | undefined };
-      if (mcpUrl) {
-        try { mcp.tools = await listMcpTools(mcpUrl); }
-        catch (error) { mcp.error = error instanceof Error ? error.message : String(error); }
-      }
-      return json({ workspaces, mcp });
+      const [workspaces, configuredServers] = await Promise.all([control.listWorkspaces(), control.getMcpServers()]);
+      const mcpServers = await Promise.all(configuredServers.map(async (server) => {
+        try { return { ...server, tools: await listMcpTools(server.url) }; }
+        catch (error) { return { ...server, tools: [], error: error instanceof Error ? error.message : String(error) }; }
+      }));
+      const first = mcpServers[0];
+      const legacyError = first && "error" in first ? first.error : undefined;
+      const legacyMcp = {
+        url: first?.url ?? "",
+        configured: Boolean(first),
+        tools: first?.tools ?? [],
+        ...(legacyError ? { error: legacyError } : {}),
+      };
+      return json({ workspaces, mcpServers, mcp: legacyMcp });
     }
     if (url.pathname === "/api/admin/workspaces" && request.method === "GET") {
       return json({ workspaces: await control.listWorkspaces() });
@@ -89,18 +102,40 @@ async function adminApi(request: Request, env: Env, url: URL): Promise<Response>
         return json({ error: error instanceof Error ? error.message : "Workspace deletion failed." }, 500);
       }
     }
+    if (url.pathname === "/api/admin/mcp-servers" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const name = textField(body, "name", 80);
+      const value = textField(body, "url", 2048);
+      const mcpUrl = validatePublicMcpUrl(value);
+      const configured = await control.getMcpServers();
+      if (configured.length >= 8) return json({ error: "You can connect up to 8 MCP servers." }, 400);
+      if (configured.some((server) => server.url === mcpUrl)) return json({ error: "This MCP endpoint is already connected." }, 409);
+      if (configured.some((server) => server.name.toLowerCase() === name.toLowerCase())) return json({ error: "Choose a unique name for each MCP server." }, 409);
+      const tools = await listMcpTools(mcpUrl);
+      const server = await control.addMcpServer({ name, url: mcpUrl });
+      return json({ server: { ...server, tools } }, 201);
+    }
+    const deleteMcpServerMatch = /^\/api\/admin\/mcp-servers\/([^/]+)$/u.exec(url.pathname);
+    if (deleteMcpServerMatch && request.method === "DELETE") {
+      const id = mcpServerId(deleteMcpServerMatch[1]);
+      if (!(await control.removeMcpServer(id))) return json({ error: "MCP server not found." }, 404);
+      return json({ removed: true });
+    }
+    // Keep the old single-server endpoint compatible with clients already holding the previous admin page.
     if (url.pathname === "/api/admin/mcp" && request.method === "PUT") {
       const body = await bodyObject(request);
       const value = typeof body.url === "string" ? body.url.trim() : "";
+      const configured = await control.getMcpServers();
       if (!value) {
-        await control.setMcpUrl("");
-        return json({ url: "", configured: false, tools: [] });
+        if (configured.length > 1) return json({ error: "Remove MCP servers individually from the admin panel." }, 409);
+        if (configured.length === 1) await control.removeMcpServer(configured[0].id);
+        return json({ configured: false, servers: [] });
       }
       if (value.length > 2048) return json({ error: "MCP URL must be 2048 characters or fewer." }, 400);
       const mcpUrl = validatePublicMcpUrl(value);
       const tools = await listMcpTools(mcpUrl);
-      await control.setMcpUrl(mcpUrl);
-      return json({ url: mcpUrl, configured: true, tools });
+      const server = await control.addMcpServer({ name: new URL(mcpUrl).hostname, url: mcpUrl });
+      return json({ server: { ...server, tools }, configured: true });
     }
     return json({ error: "Not found" }, 404);
   } catch (error) {

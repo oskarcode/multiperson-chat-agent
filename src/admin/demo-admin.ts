@@ -1,12 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../platform-env";
-import type { WorkspaceInfo } from "../protocol/chat";
+import type { McpServerConfig, WorkspaceInfo } from "../protocol/chat";
 
 const WORKSPACE_PREFIX = "workspace:";
-const MCP_URL_KEY = "global-mcp-url";
+const MCP_SERVERS_KEY = "global-mcp-servers";
+const LEGACY_MCP_URL_KEY = "global-mcp-url";
+const MAX_MCP_SERVERS = 8;
 type WorkspaceRecord = WorkspaceInfo & { deleting?: true };
 
-/** Stores the demo-wide MCP endpoint and the index of shareable workspaces. */
+/** Stores the demo-wide MCP endpoints and the index of shareable workspaces. */
 export class DemoAdmin extends DurableObject<Env> {
   async listWorkspaces(): Promise<WorkspaceRecord[]> {
     const records = await this.ctx.storage.list<WorkspaceRecord>({ prefix: WORKSPACE_PREFIX });
@@ -41,12 +43,45 @@ export class DemoAdmin extends DurableObject<Env> {
     return workspace;
   }
 
-  async getMcpUrl(): Promise<string> {
-    const configured = await this.ctx.storage.get<string>(MCP_URL_KEY);
-    return configured ?? this.env.MCP_URL?.trim() ?? "";
+  async getMcpServers(): Promise<McpServerConfig[]> {
+    const migratedId = crypto.randomUUID();
+    return this.ctx.storage.transaction(async (txn) => {
+      const current = await txn.get<McpServerConfig[]>(MCP_SERVERS_KEY);
+      if (Array.isArray(current)) return current;
+      const legacy = await txn.get<string>(LEGACY_MCP_URL_KEY);
+      const url = legacy ?? this.env.MCP_URL?.trim() ?? "";
+      let name = "MCP server";
+      if (url) {
+        try { name = new URL(url).hostname || name; }
+        catch { /* Preserve an invalid legacy value so the admin UI can show its connection error. */ }
+      }
+      const servers = url ? [{ id: migratedId, name, url }] : [];
+      await txn.put(MCP_SERVERS_KEY, servers);
+      await txn.delete(LEGACY_MCP_URL_KEY);
+      return servers;
+    });
   }
 
-  async setMcpUrl(url: string): Promise<void> {
-    await this.ctx.storage.put(MCP_URL_KEY, url);
+  async addMcpServer(input: { name: string; url: string }): Promise<McpServerConfig> {
+    await this.getMcpServers();
+    const server: McpServerConfig = { id: crypto.randomUUID(), name: input.name.trim(), url: input.url };
+    return this.ctx.storage.transaction(async (txn) => {
+      const servers = await txn.get<McpServerConfig[]>(MCP_SERVERS_KEY) ?? [];
+      if (servers.length >= MAX_MCP_SERVERS) throw new Error(`You can connect up to ${MAX_MCP_SERVERS} MCP servers.`);
+      if (servers.some((item) => item.url === server.url)) throw new Error("This MCP endpoint is already connected.");
+      if (servers.some((item) => item.name.toLowerCase() === server.name.toLowerCase())) throw new Error("Choose a unique name for each MCP server.");
+      await txn.put(MCP_SERVERS_KEY, [...servers, server]);
+      return server;
+    });
+  }
+
+  async removeMcpServer(id: string): Promise<boolean> {
+    return this.ctx.storage.transaction(async (txn) => {
+      const servers = await txn.get<McpServerConfig[]>(MCP_SERVERS_KEY) ?? [];
+      const remaining = servers.filter((server) => server.id !== id);
+      if (remaining.length === servers.length) return false;
+      await txn.put(MCP_SERVERS_KEY, remaining);
+      return true;
+    });
   }
 }

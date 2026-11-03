@@ -21,14 +21,15 @@ export const adminPage = String.raw`
       <div class="admin-intro"><div><p class="eyebrow">CONFIGURATION</p><h2>Shared workspace services</h2></div><p class="muted">One public MCP connection can be used by every workspace. Guest links grant read and write access.</p></div>
       <div class="admin-grid">
         <section class="card admin-section mcp-admin-section">
-          <div class="section-heading"><span class="section-icon" aria-hidden="true">⌘</span><div><h2>Connected tools</h2><p class="muted">Configure one public HTTPS Streamable HTTP server.</p></div></div>
-          <form id="mcpForm" class="admin-form">
-            <label class="wide">MCP endpoint URL<input id="mcpUrl" type="url" inputmode="url" placeholder="https://mcp.example.com/mcp" maxlength="2048" /></label>
-            <div class="form-actions"><button type="submit">Connect and discover</button><button id="disconnectMcp" class="secondary" type="button">Disconnect</button></div>
+          <div class="section-heading"><span class="section-icon" aria-hidden="true">⌘</span><div><h2>MCP connectors</h2><p class="muted">Add up to eight public HTTPS Streamable HTTP servers.</p></div></div>
+          <form id="mcpForm" class="admin-form mcp-form">
+            <label>Server name<input id="mcpName" maxlength="80" required placeholder="e.g. Cloudflare docs" /></label>
+            <label>MCP endpoint URL<input id="mcpUrl" type="url" inputmode="url" required placeholder="https://mcp.example.com/mcp" maxlength="2048" /></label>
+            <button class="wide" type="submit">Add server <span aria-hidden="true">+</span></button>
           </form>
           <p id="mcpStatus" class="admin-status" role="status"></p>
-          <ul id="mcpTools" class="admin-tools"></ul>
-          <p class="admin-note">OAuth and private endpoints are not supported. This connection is shared with every workspace.</p>
+          <ul id="mcpServers" class="admin-list mcp-server-list"></ul>
+          <p class="admin-note">OAuth and private endpoints are not supported. Connected servers and their tools are shared with every workspace.</p>
         </section>
 
         <section class="card admin-section workspaces-admin-section">

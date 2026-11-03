@@ -15,12 +15,42 @@ export const adminClientScript = String.raw`
     element.textContent = message;
     element.classList.toggle('admin-error', error);
   }
-  function renderTools(tools) {
-    $('mcpTools').replaceChildren();
-    for (const tool of tools || []) {
-      const item = document.createElement('li');
-      item.textContent = (tool.title || tool.name) + (tool.description ? ' — ' + tool.description : '');
-      $('mcpTools').append(item);
+  function renderMcpServers(servers) {
+    const list = $('mcpServers');
+    list.replaceChildren();
+    if (!servers.length) {
+      const empty = document.createElement('li'); empty.className = 'muted'; empty.textContent = 'No MCP servers connected yet.'; list.append(empty); return;
+    }
+    for (const server of servers) {
+      const item = document.createElement('li'); item.className = 'admin-item mcp-server-item';
+      const details = document.createElement('div'); details.className = 'mcp-server-details';
+      const heading = document.createElement('strong'); heading.className = 'mcp-server-name'; heading.textContent = server.name;
+      const endpoint = document.createElement('span'); endpoint.className = 'muted mcp-server-url'; endpoint.textContent = server.url;
+      const health = document.createElement('span'); health.className = 'mcp-server-health' + (server.error ? ' admin-error' : '');
+      health.textContent = server.error ? 'Connection issue: ' + server.error : server.tools.length + ' tools available';
+      details.append(heading, endpoint, health);
+      if (server.tools?.length) {
+        const tools = document.createElement('ul'); tools.className = 'mcp-tool-list';
+        for (const tool of server.tools) {
+          const toolItem = document.createElement('li');
+          toolItem.textContent = (tool.title || tool.name) + (tool.description ? ' — ' + tool.description : '');
+          tools.append(toolItem);
+        }
+        details.append(tools);
+      }
+      const actions = document.createElement('div'); actions.className = 'admin-item-actions';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'danger'; remove.textContent = 'Remove server';
+      remove.addEventListener('click', async () => {
+        if (!window.confirm('Remove “' + server.name + '” and its tools from all workspaces?')) return;
+        remove.disabled = true;
+        status($('mcpStatus'), 'Removing ' + server.name + '…');
+        try {
+          await api('/api/admin/mcp-servers/' + encodeURIComponent(server.id), { method: 'DELETE' });
+          status($('mcpStatus'), server.name + ' removed from all workspaces.');
+        } catch (error) { status($('mcpStatus'), error.message, true); }
+        finally { await refresh(); }
+      });
+      actions.append(remove); item.append(details, actions); list.append(item);
     }
   }
   function renderWorkspaces(workspaces) {
@@ -62,9 +92,13 @@ export const adminClientScript = String.raw`
       const data = await api('/api/admin/state');
       $('adminGate').classList.add('hidden'); $('adminContent').classList.remove('hidden');
       renderWorkspaces(data.workspaces);
-      $('mcpUrl').value = data.mcp.url || '';
-      renderTools(data.mcp.tools);
-      status($('mcpStatus'), data.mcp.error || (data.mcp.configured ? data.mcp.tools.length + ' MCP tools available to all workspaces.' : 'No shared MCP server connected.'), Boolean(data.mcp.error));
+      renderMcpServers(data.mcpServers || []);
+      const totalTools = (data.mcpServers || []).reduce((count, server) => count + (server.tools?.length || 0), 0);
+      const unavailable = (data.mcpServers || []).filter((server) => server.error).length;
+      const summary = data.mcpServers?.length
+        ? data.mcpServers.length + ' server' + (data.mcpServers.length === 1 ? '' : 's') + ' · ' + totalTools + ' tools available to all workspaces.'
+        : 'No shared MCP servers connected.';
+      status($('mcpStatus'), unavailable ? summary + ' ' + unavailable + ' connection issue' + (unavailable === 1 ? '' : 's') + ' shown below.' : summary, unavailable > 0);
     } catch (error) {
       secret = ''; sessionStorage.removeItem(secretKey);
       $('adminContent').classList.add('hidden'); $('adminGate').classList.remove('hidden');
@@ -94,20 +128,14 @@ export const adminClientScript = String.raw`
   $('mcpForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = $('mcpForm').querySelector('button[type="submit"]'); button.disabled = true;
-    status($('mcpStatus'), 'Connecting and discovering tools…'); renderTools([]);
+    status($('mcpStatus'), 'Checking the endpoint and discovering tools…');
     try {
-      const data = await api('/api/admin/mcp', { method: 'PUT', body: JSON.stringify({ url: $('mcpUrl').value.trim() }) });
-      $('mcpUrl').value = data.url;
-      renderTools(data.tools);
-      status($('mcpStatus'), data.tools.length + ' tools connected and shared with all workspaces.');
+      const data = await api('/api/admin/mcp-servers', { method: 'POST', body: JSON.stringify({ name: $('mcpName').value.trim(), url: $('mcpUrl').value.trim() }) });
+      $('mcpName').value = ''; $('mcpUrl').value = '';
+      status($('mcpStatus'), data.server.name + ' connected with ' + data.server.tools.length + ' tools.');
+      await refresh();
     } catch (error) { status($('mcpStatus'), error.message, true); }
     finally { button.disabled = false; }
-  });
-  $('disconnectMcp').addEventListener('click', async () => {
-    try {
-      await api('/api/admin/mcp', { method: 'PUT', body: JSON.stringify({ url: '' }) });
-      $('mcpUrl').value = ''; renderTools([]); status($('mcpStatus'), 'Shared MCP server disconnected.');
-    } catch (error) { status($('mcpStatus'), error.message, true); }
   });
   if (secret) refresh();
 `;

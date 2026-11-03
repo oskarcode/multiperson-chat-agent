@@ -6,10 +6,25 @@ export type ChatMessage = {
   readonly createdAt: number;
 };
 
+export type McpServerConfig = {
+  readonly id: string;
+  readonly name: string;
+  readonly url: string;
+};
+
 export type McpToolSummary = {
+  readonly serverId: string;
+  readonly serverName: string;
   readonly name: string;
   readonly title?: string;
   readonly description?: string;
+};
+
+export type McpServerStatus = {
+  readonly id: string;
+  readonly name: string;
+  readonly tools: readonly McpToolSummary[];
+  readonly error?: string;
 };
 
 export type RoomProgress = {

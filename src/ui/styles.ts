@@ -67,7 +67,14 @@ export const appStyles = String.raw`
   .text-button:hover:not(:disabled) { background: transparent; box-shadow: none; text-decoration: underline; transform: none; }
   .mcp-status-copy { margin-top: .5rem; color: #79847b; font-size: .69rem; line-height: 1.45; overflow-wrap: anywhere; }
   .mcp-tools { display: grid; gap: .35rem; max-height: 26vh; overflow: auto; margin: .5rem 0 0; padding: 0; list-style: none; }
-  .mcp-tools li { border-top: 1px solid #edf0ed; padding: .4rem 0 0; color: #606c62; font-size: .69rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .mcp-tools > li { border-top: 1px solid #edf0ed; padding: .5rem 0 0; color: #606c62; font-size: .69rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .mcp-server-group { display: grid; gap: .25rem; }
+  .mcp-server-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; color: #526451; }
+  .mcp-server-heading strong { font-size: .71rem; }
+  .mcp-server-heading span, .mcp-server-error { color: #939b94; font-size: .64rem; }
+  .mcp-server-error { margin: 0; color: #a46c5b; }
+  .mcp-server-tool-list { display: grid; gap: .3rem; margin: .18rem 0 .2rem; padding: 0; list-style: none; }
+  .mcp-server-tool-list li { color: #78827a; font-size: .65rem; line-height: 1.4; overflow-wrap: anywhere; }
   .sidebar-spacer { flex: 1 0 20px; }
   .sidebar-public-note { display: flex; align-items: flex-start; gap: .5rem; border: 1px solid #f1e8d5; border-radius: 11px; padding: .65rem; background: #fffaf0; color: #82765e; font-size: .68rem; line-height: 1.45; }
   .note-dot { flex: 0 0 auto; width: .42rem; height: .42rem; margin-top: .18rem; border-radius: 50%; background: #d0a34a; }
@@ -175,6 +182,7 @@ export const appStyles = String.raw`
   .section-heading .muted { margin-top: .28rem; font-size: .74rem; }
   .admin-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .65rem; }
   .admin-form .wide { grid-column: 1 / -1; }
+  .mcp-form { grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); }
   .admin-form input { min-width: 0; padding: .7rem .8rem; font-size: .82rem; }
   .admin-form button { min-height: 2.55rem; font-size: .77rem; white-space: nowrap; }
   .form-actions { display: flex; flex-wrap: wrap; gap: .5rem; grid-column: 1 / -1; }
@@ -192,6 +200,12 @@ export const appStyles = String.raw`
   .admin-item a { width: fit-content; max-width: 100%; color: #3d6548; font-size: .8rem; font-weight: 700; overflow-wrap: anywhere; }
   .admin-item .muted { font-size: .67rem; overflow-wrap: anywhere; }
   .admin-item-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+  .mcp-server-item .mcp-server-details { display: grid; flex: 1; min-width: 0; gap: .28rem; }
+  .mcp-server-name { color: #3d6548; font-size: .8rem; }
+  .mcp-server-url { font-size: .67rem; overflow-wrap: anywhere; }
+  .mcp-server-health { color: #66766a; font-size: .69rem; }
+  .mcp-tool-list { display: grid; gap: .35rem; max-height: 180px; overflow: auto; margin: .25rem 0 0; padding: 0; list-style: none; }
+  .mcp-tool-list li { border: 1px solid #edf0ed; border-radius: 8px; padding: .45rem .55rem; color: #606c62; background: #fbfcfb; font-size: .67rem; line-height: 1.45; overflow-wrap: anywhere; }
   .admin-item-actions button { min-height: 2.15rem; padding: .45rem .58rem; font-size: .67rem; }
   .footer, .admin-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 20px; border-top: 1px solid #e5e9e5; padding: 13px 2px 0; color: #929a93; font-size: .69rem; line-height: 1.5; }
   .admin-footer a { flex: 0 0 auto; font-weight: 650; }
@@ -266,6 +280,8 @@ export const appStyles = String.raw`
     .admin-form { grid-template-columns: minmax(0, 1fr); }
     .admin-form .wide { grid-column: auto; }
     .form-actions { grid-column: auto; }
+    .mcp-form { grid-template-columns: minmax(0, 1fr); }
+    .mcp-form .wide { grid-column: auto; }
     .admin-form button { width: 100%; }
     .admin-item { align-items: stretch; flex-direction: column; }
     .admin-item-actions { justify-content: stretch; }

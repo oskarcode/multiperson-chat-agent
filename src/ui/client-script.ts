@@ -200,11 +200,31 @@ export const appClientScript = String.raw`
       $('mcpSummary').textContent = 'Checking…'; $('mcpStatus').textContent = ''; $('mcpTools').replaceChildren();
       try {
         const result = await api(roomPath('mcp'));
-        if (!result.configured) { $('mcpSummary').textContent = 'not connected'; $('mcpStatus').textContent = 'The admin can connect a shared public MCP server at /admin.'; return; }
-        if (result.error) { $('mcpSummary').textContent = 'connection failed'; $('mcpStatus').textContent = result.error; return; }
-        $('mcpSummary').textContent = result.tools.length + ' available';
-        $('mcpStatus').textContent = result.tools.length ? 'Shared with every workspace; the agent can call these tools when useful:' : 'Connected, but this server did not advertise tools.';
-        for (const tool of result.tools) { const item = document.createElement('li'); item.textContent = (tool.title || tool.name) + (tool.description ? ' — ' + tool.description : ''); $('mcpTools').append(item); }
+        if (!result.configured) { $('mcpSummary').textContent = 'not connected'; $('mcpStatus').textContent = 'The admin can connect public MCP servers at /admin.'; return; }
+        const servers = result.servers || [];
+        const toolCount = (result.tools || []).length;
+        $('mcpSummary').textContent = servers.length + ' server' + (servers.length === 1 ? '' : 's') + ' · ' + toolCount + ' tools';
+        const unavailable = servers.filter((server) => server.error).length;
+        $('mcpStatus').textContent = unavailable
+          ? 'Some server connections are unavailable; other configured tools remain usable.'
+          : toolCount ? 'Shared with every workspace; the agent can call these tools when useful.' : 'Connected, but these servers did not advertise tools.';
+        for (const server of servers) {
+          const group = document.createElement('li'); group.className = 'mcp-server-group';
+          const heading = document.createElement('div'); heading.className = 'mcp-server-heading';
+          const name = document.createElement('strong'); name.textContent = server.name;
+          const count = document.createElement('span'); count.textContent = server.error ? 'unavailable' : server.tools.length + ' tools';
+          heading.append(name, count); group.append(heading);
+          if (server.error) {
+            const error = document.createElement('p'); error.className = 'mcp-server-error'; error.textContent = server.error; group.append(error);
+          } else {
+            const tools = document.createElement('ul'); tools.className = 'mcp-server-tool-list';
+            for (const tool of server.tools) {
+              const item = document.createElement('li'); item.textContent = (tool.title || tool.name) + (tool.description ? ' — ' + tool.description : ''); tools.append(item);
+            }
+            group.append(tools);
+          }
+          $('mcpTools').append(group);
+        }
       } catch (error) { $('mcpSummary').textContent = 'unavailable'; $('mcpStatus').textContent = error.message; }
     }
     function applySnapshot(snapshot) {

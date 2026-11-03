@@ -4,7 +4,7 @@ import { Harness, type Conversation, type ConversationWatch, type HarnessInspect
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Env } from "../platform-env";
-import type { ChatMessage, McpToolSummary, RoomSnapshot, Schedule, WorkspaceInfo } from "../protocol/chat";
+import type { ChatMessage, McpServerConfig, McpServerStatus, McpToolSummary, RoomSnapshot, Schedule, WorkspaceInfo } from "../protocol/chat";
 import { callMcpTool, listMcpTools } from "../integrations/mcp";
 import { DEFAULT_WORKERS_AI_MODEL } from "../agent/models";
 import { messageNeedsFollowUp } from "./follow-up-classifier";
@@ -21,13 +21,14 @@ const MCP_CACHE_MS = 60_000;
 const DELETED_WORKSPACE_KEY = "workspace-deleted";
 
 type FollowUpInput = Partial<ProactiveFollowUpInput>;
-type McpStatus = { configured: boolean; tools: McpToolSummary[]; error?: string };
+type McpStatus = { configured: boolean; servers: McpServerStatus[]; tools: McpToolSummary[] };
+type McpCache = { fingerprint: string; expiresAt: number; servers: McpServerStatus[] };
 
 /** One named room owns the group transcript and its Pi Durable conversation. */
 export class ChatRoom extends DurableObject<Env> {
   readonly #ready: Promise<Harness | undefined>;
   #models: Models | undefined;
-  #mcpCache: { url: string; expiresAt: number; tools: McpToolSummary[] } | undefined;
+  #mcpCache: McpCache | undefined;
   #writeQueue: Promise<void> = Promise.resolve();
   #broadcastWatch: ConversationWatch | undefined;
   #watchStarting: Promise<ConversationWatch> | undefined;
@@ -229,13 +230,8 @@ export class ChatRoom extends DurableObject<Env> {
 
   async mcpStatus(): Promise<McpStatus> {
     await this.#assertActive();
-    const url = await this.#getMcpUrl();
-    if (!url) return { configured: false, tools: [] };
-    try {
-      return { configured: true, tools: await this.#getMcpTools(true) };
-    } catch (error) {
-      return { configured: true, tools: [], error: error instanceof Error ? error.message : String(error) };
-    }
+    const servers = await this.#discoverMcpServers(true);
+    return { configured: servers.length > 0, servers, tools: servers.flatMap((server) => [...server.tools]) };
   }
 
   async deleteWorkspace(): Promise<void> {
@@ -338,11 +334,12 @@ export class ChatRoom extends DurableObject<Env> {
     };
     const capabilities = {
       listMcpTools: () => this.#getMcpTools(),
-      callMcpTool: async (input: { toolName: string; args: Record<string, unknown> }) => {
-        const url = await this.#getMcpUrl();
-        if (!url) throw new Error("No shared MCP server is configured by the admin.");
-        if (!(await this.#getMcpTools()).some((tool) => tool.name === input.toolName)) throw new Error("That tool is not advertised by the configured MCP server.");
-        return callMcpTool(url, input.toolName, input.args);
+      callMcpTool: async (input: { serverId: string; serverName: string; toolName: string; args: Record<string, unknown> }) => {
+        const server = (await this.#getMcpServers()).find((item) => item.id === input.serverId && item.name === input.serverName);
+        if (!server) throw new Error("The selected MCP server is no longer configured.");
+        const advertised = (await this.#getMcpTools()).some((tool) => tool.serverId === server.id && tool.name === input.toolName);
+        if (!advertised) throw new Error("That tool is not advertised by the selected MCP server.");
+        return callMcpTool(server.url, input.toolName, input.args);
       },
     };
     const options = createStarterHarnessOptions(this.env, schedules, capabilities);
@@ -443,21 +440,35 @@ export class ChatRoom extends DurableObject<Env> {
     return revision;
   }
 
-  async #getMcpUrl(): Promise<string> {
-    return this.env.ADMIN.getByName("global").getMcpUrl();
+  async #getMcpServers(): Promise<McpServerConfig[]> {
+    return this.env.ADMIN.getByName("global").getMcpServers();
   }
 
-  async #getMcpTools(refresh = false): Promise<McpToolSummary[]> {
-    const url = await this.#getMcpUrl();
-    if (!url) return [];
-    if (!refresh && this.#mcpCache?.url === url && this.#mcpCache.expiresAt > Date.now()) return this.#mcpCache.tools;
-    const tools = (await listMcpTools(url)).map((tool) => ({
-      name: tool.name,
-      ...(tool.title === undefined ? {} : { title: tool.title }),
-      ...(tool.description === undefined ? {} : { description: tool.description }),
+  async #discoverMcpServers(refresh = false): Promise<McpServerStatus[]> {
+    const configured = await this.#getMcpServers();
+    const fingerprint = JSON.stringify(configured.map(({ id, name, url }) => [id, name, url]));
+    if (!refresh && this.#mcpCache?.fingerprint === fingerprint && this.#mcpCache.expiresAt > Date.now()) return this.#mcpCache.servers;
+    const servers = await Promise.all(configured.map(async (server): Promise<McpServerStatus> => {
+      try {
+        const tools = (await listMcpTools(server.url)).map((tool) => ({
+          serverId: server.id,
+          serverName: server.name,
+          name: tool.name,
+          ...(tool.title === undefined ? {} : { title: tool.title }),
+          ...(tool.description === undefined ? {} : { description: tool.description }),
+        }));
+        return { id: server.id, name: server.name, tools };
+      } catch (error) {
+        this.#log("MCP tool discovery failed", { serverId: server.id, error });
+        return { id: server.id, name: server.name, tools: [], error: error instanceof Error ? error.message : String(error) };
+      }
     }));
-    this.#mcpCache = { url, expiresAt: Date.now() + MCP_CACHE_MS, tools };
-    return tools;
+    this.#mcpCache = { fingerprint, expiresAt: Date.now() + MCP_CACHE_MS, servers };
+    return servers;
+  }
+
+  async #getMcpTools(): Promise<McpToolSummary[]> {
+    return (await this.#discoverMcpServers()).flatMap((server) => [...server.tools]);
   }
 
   async #finishSubmission(submission: Submission): Promise<void> {
