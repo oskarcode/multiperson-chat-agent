@@ -26,6 +26,8 @@ try {
   await expect(admin.locator('#workspaces')).toContainText('Family room');
   const familyPath = await admin.locator('#workspaces a').first().getAttribute('href');
   expect(familyPath).toMatch(/^\/w\/[a-f0-9-]{36}$/u);
+  const displayedShareUrl = await admin.locator('#workspaces .admin-item').first().locator('.muted').textContent();
+  expect(displayedShareUrl?.trim()).toBe(new URL(familyPath, base).href);
   await admin.locator('#workspaceTitle').fill('Project room');
   await admin.locator('#workspaceForm button').click();
   await expect(admin.locator('#workspaces')).toContainText('Project room');

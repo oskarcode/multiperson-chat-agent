@@ -33,7 +33,7 @@ export const adminClientScript = String.raw`
       const item = document.createElement('li'); item.className = 'admin-item';
       const link = document.createElement('a'); link.href = '/w/' + encodeURIComponent(workspace.id); link.textContent = workspace.title + (workspace.deleting ? ' (deletion pending)' : '');
       const linkWrap = document.createElement('div');
-      const share = location.origin + link.href;
+      const share = link.href;
       const url = document.createElement('div'); url.className = 'muted'; url.textContent = workspace.deleting ? 'Access is disabled. Retry cleanup below.' : share;
       linkWrap.append(link, url);
       const actions = document.createElement('div'); actions.className = 'admin-item-actions';
