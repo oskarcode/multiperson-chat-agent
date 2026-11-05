@@ -27,7 +27,7 @@ A workspace's random ID maps deterministically to one `ChatRoom`, so its group t
 
 ## Agent and streaming ownership
 
-Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. Hono routes HTTP requests and forwards the WebSocket upgrade to `ChatRoom.fetch`, where the Durable Object accepts the server socket with the Hibernation API. `ChatRoom` adapts guest commands into Pi Durable entries/inputs and broadcasts snapshots from one conversation watch to every connected guest. Partial assistant text streams in the chat transcript. The collapsible activity panel reports run/response transitions and named tool-call status events without duplicating response tokens.
+Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. Hono routes HTTP requests and forwards the WebSocket upgrade to `ChatRoom.fetch`, where the Durable Object accepts the server socket with the Hibernation API. `ChatRoom` adapts guest commands into Pi Durable entries/inputs and broadcasts snapshots from one conversation watch to every connected guest. Partial assistant text streams in the chat transcript. The browser associates live run/response transitions and named tool-call status events with the corresponding agent response, without duplicating response tokens or creating a second persisted transcript.
 
 When an idle room hibernates, the WebSocket connection remains open but the JavaScript instance and in-memory conversation watch are discarded. On reconstruction, `ChatRoom` reopens its Harness and recreates the watch for sockets returned by `ctx.getWebSockets()`, then sends the latest durable snapshot. The browser also reconnects with exponential backoff and retries unacknowledged sends using the same `requestId`; group writes and agent submissions use that ID for Pi Durable deduplication. No interval heartbeat is used, so it does not keep an idle room awake.
 
@@ -58,7 +58,7 @@ Each discovered tool carries its `serverId` and `serverName` in the Pi tool cont
 - `src/session/schedule-task.ts`, `src/session/schedule-tools.ts` — durable reminders.
 - `src/session/follow-up-classifier.ts`, `src/session/follow-up-task.ts` — proactive follow-ups.
 - `src/integrations/mcp.ts` — public Streamable HTTP MCP client; `src/session/capability-tools.ts` routes namespaced tool calls to their configured server.
-- `src/ui/` — no-build guest chat, live activity panel, and secret-gated admin page.
+- `src/ui/` — no-build guest chat with inline per-response activity, and secret-gated admin page.
 - `worker-configuration.d.ts` — generated Worker binding types.
 
 ## Deployment and data

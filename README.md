@@ -22,7 +22,7 @@ pnpm exec wrangler dev
 
 `pnpm admin:secret` creates a random local `ADMIN_SECRET` in the ignored `.dev.vars` file and never prints its value. Read that file locally to unlock `/admin`. The deploy helper also creates this local secret if needed and provisions the same value to Cloudflare. Do not commit or share `.dev.vars`.
 
-Workers AI is configured in `wrangler.jsonc` with default model `@cf/zai-org/glm-4.7-flash`. Agent calls during local development still use Cloudflare Workers AI remotely and may incur usage charges.
+Workers AI is configured in `wrangler.jsonc` with default model `@cf/zai-org/glm-5.3`. GLM-5.3 requires a Workers Paid plan or prepaid AI Gateway credits; agent calls during local development still use Cloudflare Workers AI remotely and may incur usage charges.
 
 ## How it works
 
@@ -56,7 +56,7 @@ Guest browser -> /w/<workspace-id> (public share link)
 
 ### Agent streaming
 
-The workspace Durable Object maintains one Pi Durable conversation watch and broadcasts snapshots over hibernatable WebSockets. Partial assistant text streams in the chat transcript. The collapsible activity panel shows agent start/response status and named tool-call events, not response tokens. Idle Durable Objects can hibernate while sockets remain connected; after wake, the constructor rebuilds the Harness watch and broadcasts a current snapshot. The browser reconnects with backoff and retries unacknowledged sends using stable request IDs.
+The workspace Durable Object maintains one Pi Durable conversation watch and broadcasts snapshots over hibernatable WebSockets. Partial assistant text streams in the chat transcript. The browser displays run/response status and named tool-call events inline with the relevant agent response, not response tokens; this activity is projected from live progress and is not a second persisted transcript. Idle Durable Objects can hibernate while sockets remain connected; after wake, the constructor rebuilds the Harness watch and broadcasts a current snapshot. The browser reconnects with backoff and retries unacknowledged sends using stable request IDs.
 
 ### Automatic follow-up
 
@@ -91,7 +91,23 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, status-only activity-panel rendering with tool names, MCP URL validation, multi-server persistence and migration, duplicate tool-name routing, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, inline per-response activity rendering with tool names and statuses, MCP URL validation, multi-server persistence and migration, duplicate tool-name routing, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+
+## Deploy with a coding agent
+
+Open this repository in your coding agent, then paste the prompt below. It directs the agent to the root `AGENTS.md`, which is the source of truth for project, security, testing, and deployment rules. The prompt explicitly authorizes deployment to the configured Worker after the account target is verified.
+
+```text
+Read the repository-root AGENTS.md completely and follow it. I want you to deploy this project to Cloudflare now.
+
+1. Inspect wrangler.jsonc and scripts/deploy-agent.mjs. Use the Worker name from wrangler.jsonc; do not change deployment targets or bypass the deploy helper.
+2. Check git status and preserve all existing user changes. Run `pnpm exec wrangler whoami --json` to verify Cloudflare authentication without printing credentials. If exactly one account is available, use it and state its name/ID and the Worker name. If there are multiple accounts, ask me which one; if none is authenticated, ask me to run Wrangler login. Do not guess.
+3. Run pnpm check and node scripts/test-browser.mjs. If either fails, stop and report the failure; do not deploy.
+4. This prompt explicitly authorizes deployment to the verified account and configured Worker. After the checks pass, run pnpm deploy:agent --account <ACCOUNT_ID> --name <WORKER_NAME> --yes. Do not reset Durable Object data, change the account/Worker target, or deploy through another path.
+5. Never print, copy into chat, commit, or otherwise expose .dev.vars or ADMIN_SECRET. Let the deploy helper manage the local and remote secret.
+6. After deployment, verify the chat page, confirm `/admin` is served, and check that an unauthenticated request to `/api/admin/state` is rejected. Report the deployed URL, Worker version ID, checks run, and any live integrations not tested. Do not create a test workspace unless I ask.
+7. Do not commit or push unless I separately ask.
+```
 
 ## Deploy
 

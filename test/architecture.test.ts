@@ -52,7 +52,8 @@ describe("demo architecture", () => {
     expect(index).toContain("/socket");
     expect(index).not.toContain("text/event-stream");
     expect(readFileSync("src/session/transcript.ts", "utf8")).toContain('view.docs["pi.live"]');
-    expect(readFileSync("src/ui/page.ts", "utf8")).toContain('id="activityPanel"');
+    expect(readFileSync("src/ui/page.ts", "utf8")).not.toContain('id="activityPanel"');
+    expect(readFileSync("src/ui/client-script.ts", "utf8")).toContain("activityByMessage");
     expect(readFileSync("src/admin/demo-admin.ts", "utf8")).toContain("createWorkspace");
   });
 });

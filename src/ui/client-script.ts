@@ -5,7 +5,8 @@ export const appClientScript = String.raw`
     const state = {
       roomId: pathWorkspace ? decodeURIComponent(pathWorkspace) : queryWorkspace || '',
       name: 'Guest', legacy: !pathWorkspace,
-      messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] }, activity: [],
+      messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] },
+      currentActivity: [], activityByMessage: new Map(), activeMessageId: null, snapshotReceived: false,
       socket: null, reconnectTimer: null, reconnectDelay: 500, pending: new Map(),
     };
     const api = async (path, options = {}) => {
@@ -93,13 +94,17 @@ export const appClientScript = String.raw`
     }
     function addActivity(text) {
       if (!text) return;
-      state.activity.push(text);
-      if (state.activity.length > 8) state.activity.shift();
+      state.currentActivity.push(text);
+      if (state.currentActivity.length > 12) state.currentActivity.shift();
     }
     function recordActivity(nextProgress, nextMessages) {
       const previous = state.progress;
-      const oldAnswers = new Set(state.messages.filter((message) => message.kind === 'agent').map((message) => message.id));
-      if (!previous.active && nextProgress.active) addActivity('Agent started');
+      const previousAnswerIds = new Set(state.messages.filter((message) => message.kind === 'agent').map((message) => message.id));
+      if (!previous.active && nextProgress.active) {
+        state.currentActivity = [];
+        state.activeMessageId = null;
+        addActivity(state.snapshotReceived ? 'Agent started' : 'Agent is working');
+      }
       if (nextProgress.active && previous.phase !== nextProgress.phase && nextProgress.phase !== 'starting') {
         const phaseMessages = {
           starting: 'Agent is starting',
@@ -118,10 +123,32 @@ export const appClientScript = String.raw`
         else if (tool.status === 'running') addActivity('Calling tool: ' + tool.name);
         else addActivity('Tool completed: ' + tool.name);
       }
+      const newAnswer = state.snapshotReceived
+        ? [...nextMessages].reverse().find((message) => message.kind === 'agent' && !previousAnswerIds.has(message.id))
+        : undefined;
+      if (newAnswer && (nextProgress.active || previous.active)) state.activeMessageId = newAnswer.id;
       if (previous.active && !nextProgress.active) {
-        const receivedAnswer = nextMessages.some((message) => message.kind === 'agent' && !oldAnswers.has(message.id));
+        const receivedAnswer = Boolean(newAnswer || state.activeMessageId);
         addActivity(receivedAnswer ? 'Agent response received' : 'Agent run ended');
       }
+      if (state.activeMessageId) state.activityByMessage.set(state.activeMessageId, [...state.currentActivity]);
+      const liveMessageIds = new Set(nextMessages.map((message) => message.id));
+      for (const id of state.activityByMessage.keys()) if (!liveMessageIds.has(id)) state.activityByMessage.delete(id);
+      if (!nextProgress.active) state.activeMessageId = null;
+      state.snapshotReceived = true;
+    }
+    function appendAgentActivity(parent, events, active = false) {
+      if (!events?.length) return;
+      const activity = document.createElement('section'); activity.className = 'agent-activity' + (active ? ' active' : '');
+      activity.setAttribute('aria-label', active ? 'Live agent activity' : 'Agent activity for this response');
+      const heading = document.createElement('div'); heading.className = 'agent-activity-heading';
+      const icon = document.createElement('span'); icon.className = 'activity-icon'; icon.setAttribute('aria-hidden', 'true'); icon.textContent = '✳';
+      const title = document.createElement('span'); title.textContent = 'Agent activity';
+      const status = document.createElement('span'); status.className = 'agent-activity-status'; status.textContent = active ? 'In progress' : 'Steps taken';
+      heading.append(icon, title, status);
+      const list = document.createElement('ol'); list.className = 'activity-events';
+      for (const event of events) { const item = document.createElement('li'); item.textContent = event; list.append(item); }
+      activity.append(heading, list); parent.append(activity);
     }
     function initials(name) {
       return (name || 'Guest').trim().split(/\s+/u).slice(0, 2).map((part) => Array.from(part)[0]?.toUpperCase() || '').join('') || 'G';
@@ -153,6 +180,10 @@ export const appClientScript = String.raw`
         if (message.kind === 'agent') { content.classList.add('markdown'); renderAgentMarkdown(content, message.text); }
         else content.textContent = message.text;
         body.append(name, content); item.append(avatar, body); box.append(item);
+        if (message.kind === 'agent') {
+          const events = message.streaming && state.progress.active ? state.currentActivity : state.activityByMessage.get(message.id);
+          appendAgentActivity(box, events, Boolean(message.streaming && state.progress.active));
+        }
       }
       if (state.progress.active) {
         const thinking = document.createElement('div'); thinking.className = 'agent-thinking'; thinking.setAttribute('role', 'status');
@@ -160,41 +191,15 @@ export const appClientScript = String.raw`
         const label = document.createElement('span'); label.textContent = state.progress.phase === 'using-tools' ? 'Group Agent is using tools' : state.progress.phase === 'waiting' ? 'Group Agent is waiting' : 'Group Agent is thinking';
         const dots = document.createElement('span'); dots.className = 'thinking-dots'; dots.setAttribute('aria-hidden', 'true'); dots.textContent = '···';
         thinking.append(avatar, label, dots); box.append(thinking);
+        const activityAlreadyShown = Boolean(state.progress.partialText || state.activeMessageId);
+        if (!activityAlreadyShown) appendAgentActivity(box, state.currentActivity, true);
       }
       if (nearBottom) box.scrollTop = box.scrollHeight;
-      renderProgress();
     }
     function setConnectionStatus(message, status = 'connecting') {
       const element = $('status');
       element.textContent = message;
       element.closest('.connection-pill')?.setAttribute('data-state', status);
-    }
-    function renderProgress() {
-      const panel = $('activityPanel');
-      const root = $('progress');
-      root.replaceChildren();
-      const phaseLabels = {
-        starting: 'Agent starting',
-        responding: 'Agent preparing a response',
-        'using-tools': 'Agent calling tools',
-        waiting: 'Agent waiting for a response',
-        retrying: 'Agent retrying',
-        idle: 'Idle',
-      };
-      const current = state.progress.active ? (phaseLabels[state.progress.phase] || 'Agent working') : state.activity[state.activity.length - 1] || 'Idle';
-      const hasActivity = state.progress.active || state.activity.length > 0;
-      panel.classList.toggle('hidden', !hasActivity);
-      $('activitySummary').textContent = current;
-      if (!hasActivity) return;
-      const label = document.createElement('div'); label.className = 'activity-current'; label.textContent = current;
-      root.append(label);
-      if (state.activity.length) {
-        const list = document.createElement('ol'); list.className = 'activity-events';
-        for (const event of state.activity) {
-          const item = document.createElement('li'); item.textContent = event; list.append(item);
-        }
-        root.append(list);
-      }
     }
     async function refreshMcp() {
       $('mcpSummary').textContent = 'Checking…'; $('mcpStatus').textContent = ''; $('mcpTools').replaceChildren();

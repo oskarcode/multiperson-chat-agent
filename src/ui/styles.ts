@@ -57,7 +57,7 @@ export const appStyles = String.raw`
   .field-hint { margin: .12rem 0 0 2.6rem; color: #97a099; font-size: .68rem; line-height: 1.45; }
   .mcp-panel { margin-top: 14px; border: 1px solid #e9ede9; border-radius: 13px; background: #fbfcfb; }
   .mcp-panel summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 46px; padding: .55rem .65rem; color: #465248; cursor: pointer; font-size: .77rem; font-weight: 680; list-style: none; }
-  .mcp-panel summary::-webkit-details-marker, .activity-panel summary::-webkit-details-marker { display: none; }
+  .mcp-panel summary::-webkit-details-marker { display: none; }
   .mcp-summary-title { display: inline-flex; align-items: center; gap: .5rem; }
   .mcp-icon { display: grid; place-items: center; width: 1.45rem; height: 1.45rem; border: 1px solid #e1e8e2; border-radius: .45rem; background: white; color: #647d69; font-size: .78rem; }
   .tool-status { border: 1px solid #e5eae5; border-radius: 99px; padding: .2rem .42rem; color: #828c83; background: white; font-size: .63rem; font-weight: 600; white-space: nowrap; }
@@ -134,19 +134,15 @@ export const appStyles = String.raw`
   .agent-thinking .speaker-avatar { width: 1.75rem; height: 1.75rem; margin: 0; }
   .thinking-dots { color: #47835a; font-size: 1.12rem; font-weight: 800; letter-spacing: .08em; animation: thinking 1.15s ease-in-out infinite; }
   @keyframes thinking { 0%, 100% { opacity: .35; transform: translateY(1px); } 50% { opacity: 1; transform: translateY(-2px); } }
-  .activity-panel { flex: 0 0 auto; border-top: 1px solid #edf0ed; background: #fbfcfb; }
-  .activity-panel summary { display: flex; align-items: center; gap: .58rem; min-height: 48px; padding: .68rem clamp(1rem, 5vw, 4rem); color: #4e5c51; cursor: pointer; font-size: .77rem; font-weight: 700; list-style: none; }
-  .activity-icon { display: grid; place-items: center; width: 1.45rem; height: 1.45rem; border: 1px solid #e1e9e1; border-radius: .48rem; background: white; color: #54785d; font-size: .78rem; }
-  .activity-label { white-space: nowrap; }
-  .activity-panel summary .muted { min-width: 0; margin-left: auto; overflow: hidden; color: #89928a; font-size: .7rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-  .summary-chevron { color: #919b92; font-size: 1rem; transition: transform .16s ease; }
-  .activity-panel[open] .summary-chevron { transform: rotate(180deg); }
-  .progress { padding: 0 clamp(1rem, 5vw, 4rem) 1rem; color: #667168; font-size: .76rem; }
-  .activity-current { display: flex; align-items: center; gap: .5rem; color: #3c5943; font-weight: 670; }
-  .activity-current::before { width: .43rem; height: .43rem; border-radius: 50%; background: #6a9d76; content: ""; }
-  .activity-events { display: grid; gap: .35rem; margin: .6rem 0 0 .18rem; border-left: 1px solid #dfe8e0; padding: .05rem 0 .05rem .95rem; list-style: none; }
+  .agent-activity { width: fit-content; max-width: min(86%, 760px); margin: -.35rem 0 .9rem 2.68rem; border: 1px solid #edf0ed; border-radius: 12px; padding: .55rem .7rem .65rem; background: #fbfcfb; color: #667168; font-size: .7rem; }
+  .agent-activity.active { border-color: #d8e7da; background: #f7faf7; }
+  .agent-activity-heading { display: flex; align-items: center; gap: .45rem; color: #59685c; font-weight: 700; }
+  .activity-icon { display: grid; flex: 0 0 auto; place-items: center; width: 1.35rem; height: 1.35rem; border: 1px solid #e1e9e1; border-radius: .43rem; background: white; color: #54785d; font-size: .72rem; }
+  .agent-activity-status { margin-left: auto; color: #89928a; font-size: .65rem; font-weight: 500; }
+  .agent-activity.active .agent-activity-status { color: #4c8058; }
+  .activity-events { display: grid; gap: .3rem; margin: .5rem 0 0 .12rem; border-left: 1px solid #dfe8e0; padding: .05rem 0 .05rem .85rem; list-style: none; }
   .activity-events li { position: relative; color: #78827a; line-height: 1.45; }
-  .activity-events li::before { position: absolute; top: .32rem; left: -1.2rem; width: .4rem; height: .4rem; border: 1px solid #cbd9ce; border-radius: 50%; background: #fbfcfb; content: ""; }
+  .activity-events li::before { position: absolute; top: .32rem; left: -1.1rem; width: .38rem; height: .38rem; border: 1px solid #cbd9ce; border-radius: 50%; background: #fbfcfb; content: ""; }
   .composer { flex: 0 0 auto; margin: 0; border-top: 1px solid #edf0ed; padding: .9rem clamp(.75rem, 3vw, 1.45rem) .4rem; background: #fff; }
   .compose-card { border: 1px solid #e1e7e1; border-radius: 16px; padding: .55rem .65rem .65rem; background: #fff; box-shadow: 0 4px 18px rgb(31 52 36 / 5%); transition: border-color .16s ease, box-shadow .16s ease; }
   .compose-card:focus-within { border-color: #b6d0bb; box-shadow: 0 0 0 3px rgb(74 137 97 / 8%), 0 4px 18px rgb(31 52 36 / 5%); }
@@ -254,9 +250,8 @@ export const appStyles = String.raw`
     .speaker-avatar { width: 1.75rem; height: 1.75rem; font-size: .62rem; }
     .message-body { padding: .62rem .7rem .68rem; }
     .message-text { font-size: .81rem; }
-    .activity-panel summary { min-height: 43px; gap: .4rem; padding: .6rem .75rem; font-size: .7rem; }
-    .activity-panel summary .muted { font-size: .64rem; }
-    .progress { padding: 0 .9rem .8rem; font-size: .7rem; }
+    .agent-activity { max-width: calc(100% - 2.15rem); margin-left: 2.15rem; padding: .5rem .58rem .58rem; font-size: .66rem; }
+    .agent-activity-status { font-size: .61rem; }
     .composer { padding: .6rem .55rem .35rem; }
     .compose-card { border-radius: 13px; padding: .4rem .45rem .45rem; }
     .composer textarea { min-height: 57px; padding: .45rem .4rem .5rem; font-size: .82rem; }

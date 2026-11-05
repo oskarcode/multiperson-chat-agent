@@ -22,7 +22,7 @@ export function localOptions(persist, extraBindings = {}) {
       ADMIN: { className: 'DemoAdmin', useSQLite: true },
     },
     resourcePersistencePath: persist || undefined,
-    bindings: { AI_MODEL: '@cf/zai-org/glm-4.7-flash', MCP_URL: '', ADMIN_SECRET: adminSecret, ...extraBindings },
+    bindings: { AI_MODEL: '@cf/zai-org/glm-5.3', MCP_URL: '', ADMIN_SECRET: adminSecret, ...extraBindings },
   });
 }
 

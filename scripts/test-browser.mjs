@@ -131,12 +131,16 @@ try {
   progressPage.on('pageerror', error => errors.push(error.message));
   let agentRequest;
   const progressId = projectPath.slice(3);
+  const workspace = { id: progressId, title: 'Project room', createdAt: Date.now() };
+  let progressSocket;
   const partialSnapshot = {
-    workspace: { id: progressId, title: 'Project room', createdAt: Date.now() },
-    messages: [{ id: 'agent-answer', authorName: 'Group Agent', kind: 'agent', text: '**Short answer**\n\n- First step\n- Second step\n\n[Read more](https://example.com) <img src=x onerror=alert(1)>' }],
+    workspace,
+    messages: [],
     progress: { active: true, phase: 'using-tools', partialText: 'A streamed partial answer.', tools: [{ id: 'tool-call-1', name: 'search', status: 'running', output: 'Searching…' }] },
   };
   await progressPage.routeWebSocket(`**/api/workspaces/${progressId}/socket`, socket => {
+    progressSocket = socket;
+    socket.send(JSON.stringify({ type: 'snapshot', snapshot: { workspace, messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] } } }));
     socket.send(JSON.stringify({ type: 'snapshot', snapshot: partialSnapshot }));
     socket.onMessage(data => {
       try {
@@ -151,18 +155,22 @@ try {
   await progressPage.goto(base + projectPath);
   await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
   await expect(progressPage.locator('.agent-thinking')).toContainText('Group Agent is using tools');
+  await expect(progressPage.locator('#messages .agent-activity')).toContainText('Agent started');
+  await expect(progressPage.locator('#messages .agent-activity')).toContainText('Agent is using tools');
+  await expect(progressPage.locator('#messages .agent-activity')).toContainText('Calling tool: search');
+  await expect(progressPage.locator('#messages .agent-activity')).not.toContainText('A streamed partial answer.');
+  await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
+  progressSocket.send(JSON.stringify({ type: 'snapshot', snapshot: {
+    workspace,
+    messages: [{ id: 'agent-answer', authorName: 'Group Agent', kind: 'agent', text: '**Short answer**\n\n- First step\n- Second step\n\n[Read more](https://example.com) <img src=x onerror=alert(1)>' }],
+    progress: { active: false, phase: 'idle', partialText: '', tools: [] },
+  } }));
   await expect(progressPage.locator('#messages strong')).toHaveText('Short answer');
   await expect(progressPage.locator('#messages ul li')).toHaveCount(2);
   await expect(progressPage.locator('#messages a')).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(progressPage.locator('#messages img')).toHaveCount(0);
-  await expect(progressPage.locator('#activityPanel')).not.toHaveClass(/hidden/u);
-  await progressPage.locator('#activityPanel summary').click();
-  await expect(progressPage.locator('#activityPanel')).toHaveJSProperty('open', true);
-  await expect(progressPage.locator('#progress')).toContainText('Agent started');
-  await expect(progressPage.locator('#progress')).toContainText('Agent is using tools');
-  await expect(progressPage.locator('#progress')).toContainText('Calling tool: search');
-  await expect(progressPage.locator('#progress')).not.toContainText('A streamed partial answer.');
-  await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
+  await expect(progressPage.locator('#messages .agent-activity')).toContainText('Agent response received');
+  await expect(progressPage.locator('#messages .message.agent + .agent-activity')).toHaveCount(1);
   await progressPage.locator('#composer').fill('Please help.');
   await progressPage.locator('#sendAgent').click();
   await expect.poll(() => agentRequest?.target).toBe('agent');
@@ -176,5 +184,5 @@ try {
   expect(await bob.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(alice.locator('#mcpSummary')).toHaveText('not connected');
   expect(errors).toEqual([]);
-  console.log('Browser tests passed: shared workspaces, admin deletion, guest chat, safe Markdown, status-only agent activity, MCP configuration, and mobile layout.');
+  console.log('Browser tests passed: shared workspaces, admin deletion, guest chat, safe Markdown, inline per-response agent activity, MCP configuration, and mobile layout.');
 } finally { await browser?.close(); await mf.dispose(); }

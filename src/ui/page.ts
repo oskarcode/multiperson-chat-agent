@@ -41,10 +41,6 @@ export const appPage = String.raw`
 
       <section class="chat card" aria-label="Workspace chat">
         <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
-        <details id="activityPanel" class="activity-panel hidden">
-          <summary><span class="activity-icon" aria-hidden="true">✳</span><span class="activity-label">Agent activity</span><span id="activitySummary" class="muted">Idle</span><span class="summary-chevron" aria-hidden="true">⌄</span></summary>
-          <div id="progress" class="progress" role="status"></div>
-        </details>
         <form id="composerForm" class="composer">
           <div class="compose-card">
             <label class="sr-only" for="composer">Message</label>
