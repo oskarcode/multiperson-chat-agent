@@ -136,10 +136,14 @@ export const appStyles = String.raw`
   @keyframes thinking { 0%, 100% { opacity: .35; transform: translateY(1px); } 50% { opacity: 1; transform: translateY(-2px); } }
   .agent-activity { width: fit-content; max-width: min(86%, 760px); margin: -.35rem 0 .9rem 2.68rem; border: 1px solid #edf0ed; border-radius: 12px; padding: .55rem .7rem .65rem; background: #fbfcfb; color: #667168; font-size: .7rem; }
   .agent-activity.active { border-color: #d8e7da; background: #f7faf7; }
-  .agent-activity-heading { display: flex; align-items: center; gap: .45rem; color: #59685c; font-weight: 700; }
+  .agent-activity-heading { display: flex; align-items: center; gap: .45rem; color: #59685c; cursor: pointer; font-weight: 700; list-style: none; }
+  .agent-activity-heading::-webkit-details-marker { display: none; }
+  .agent-activity:hover { border-color: #dce6dd; }
   .activity-icon { display: grid; flex: 0 0 auto; place-items: center; width: 1.35rem; height: 1.35rem; border: 1px solid #e1e9e1; border-radius: .43rem; background: white; color: #54785d; font-size: .72rem; }
   .agent-activity-status { margin-left: auto; color: #89928a; font-size: .65rem; font-weight: 500; }
   .agent-activity.active .agent-activity-status { color: #4c8058; }
+  .activity-chevron { margin-left: .08rem; color: #89928a; font-size: .95rem; transition: transform .16s ease; }
+  .agent-activity[open] .activity-chevron { transform: rotate(180deg); }
   .activity-events { display: grid; gap: .3rem; margin: .5rem 0 0 .12rem; border-left: 1px solid #dfe8e0; padding: .05rem 0 .05rem .85rem; list-style: none; }
   .activity-events li { position: relative; color: #78827a; line-height: 1.45; }
   .activity-events li::before { position: absolute; top: .32rem; left: -1.1rem; width: .38rem; height: .38rem; border: 1px solid #cbd9ce; border-radius: 50%; background: #fbfcfb; content: ""; }

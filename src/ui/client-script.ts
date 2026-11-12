@@ -6,7 +6,7 @@ export const appClientScript = String.raw`
       roomId: pathWorkspace ? decodeURIComponent(pathWorkspace) : queryWorkspace || '',
       name: 'Guest', legacy: !pathWorkspace,
       messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] },
-      currentActivity: [], activityByMessage: new Map(), activeMessageId: null, snapshotReceived: false,
+      currentActivity: [], activityByMessage: new Map(), activityOpenByKey: new Map(), activeMessageId: null, snapshotReceived: false,
       socket: null, reconnectTimer: null, reconnectDelay: 500, pending: new Map(),
     };
     const api = async (path, options = {}) => {
@@ -126,7 +126,11 @@ export const appClientScript = String.raw`
       const newAnswer = state.snapshotReceived
         ? [...nextMessages].reverse().find((message) => message.kind === 'agent' && !previousAnswerIds.has(message.id))
         : undefined;
-      if (newAnswer && (nextProgress.active || previous.active)) state.activeMessageId = newAnswer.id;
+      if (newAnswer && (nextProgress.active || previous.active)) {
+        const previousActivityKey = state.activeMessageId || 'agent-live';
+        if (state.activityOpenByKey.has(previousActivityKey)) state.activityOpenByKey.set(newAnswer.id, state.activityOpenByKey.get(previousActivityKey));
+        state.activeMessageId = newAnswer.id;
+      }
       if (previous.active && !nextProgress.active) {
         const receivedAnswer = Boolean(newAnswer || state.activeMessageId);
         addActivity(receivedAnswer ? 'Agent response received' : 'Agent run ended');
@@ -134,18 +138,26 @@ export const appClientScript = String.raw`
       if (state.activeMessageId) state.activityByMessage.set(state.activeMessageId, [...state.currentActivity]);
       const liveMessageIds = new Set(nextMessages.map((message) => message.id));
       for (const id of state.activityByMessage.keys()) if (!liveMessageIds.has(id)) state.activityByMessage.delete(id);
-      if (!nextProgress.active) state.activeMessageId = null;
+      for (const id of state.activityOpenByKey.keys()) if (id !== 'agent-live' && !liveMessageIds.has(id)) state.activityOpenByKey.delete(id);
+      if (!nextProgress.active) {
+        state.activeMessageId = null;
+        state.activityOpenByKey.delete('agent-live');
+      }
       state.snapshotReceived = true;
     }
-    function appendAgentActivity(parent, events, active = false) {
+    function appendAgentActivity(parent, events, active = false, key = 'agent-live') {
       if (!events?.length) return;
-      const activity = document.createElement('section'); activity.className = 'agent-activity' + (active ? ' active' : '');
+      const activity = document.createElement('details'); activity.className = 'agent-activity' + (active ? ' active' : '');
       activity.setAttribute('aria-label', active ? 'Live agent activity' : 'Agent activity for this response');
-      const heading = document.createElement('div'); heading.className = 'agent-activity-heading';
+      activity.open = state.activityOpenByKey.has(key) ? state.activityOpenByKey.get(key) : false;
+      state.activityOpenByKey.set(key, activity.open);
+      activity.addEventListener('toggle', () => state.activityOpenByKey.set(key, activity.open));
+      const heading = document.createElement('summary'); heading.className = 'agent-activity-heading';
       const icon = document.createElement('span'); icon.className = 'activity-icon'; icon.setAttribute('aria-hidden', 'true'); icon.textContent = '✳';
       const title = document.createElement('span'); title.textContent = 'Agent activity';
       const status = document.createElement('span'); status.className = 'agent-activity-status'; status.textContent = active ? 'In progress' : 'Steps taken';
-      heading.append(icon, title, status);
+      const chevron = document.createElement('span'); chevron.className = 'activity-chevron'; chevron.setAttribute('aria-hidden', 'true'); chevron.textContent = '⌄';
+      heading.append(icon, title, status, chevron);
       const list = document.createElement('ol'); list.className = 'activity-events';
       for (const event of events) { const item = document.createElement('li'); item.textContent = event; list.append(item); }
       activity.append(heading, list); parent.append(activity);
@@ -181,8 +193,10 @@ export const appClientScript = String.raw`
         else content.textContent = message.text;
         body.append(name, content); item.append(avatar, body); box.append(item);
         if (message.kind === 'agent') {
-          const events = message.streaming && state.progress.active ? state.currentActivity : state.activityByMessage.get(message.id);
-          appendAgentActivity(box, events, Boolean(message.streaming && state.progress.active));
+          const liveActivity = message.streaming && state.progress.active && !state.activeMessageId;
+          const events = liveActivity ? state.currentActivity : state.activityByMessage.get(message.id);
+          const activityKey = liveActivity ? 'agent-live' : message.id;
+          appendAgentActivity(box, events, Boolean(liveActivity), activityKey);
         }
       }
       if (state.progress.active) {
@@ -192,7 +206,7 @@ export const appClientScript = String.raw`
         const dots = document.createElement('span'); dots.className = 'thinking-dots'; dots.setAttribute('aria-hidden', 'true'); dots.textContent = '···';
         thinking.append(avatar, label, dots); box.append(thinking);
         const activityAlreadyShown = Boolean(state.progress.partialText || state.activeMessageId);
-        if (!activityAlreadyShown) appendAgentActivity(box, state.currentActivity, true);
+        if (!activityAlreadyShown) appendAgentActivity(box, state.currentActivity, true, 'agent-live');
       }
       if (nearBottom) box.scrollTop = box.scrollHeight;
     }

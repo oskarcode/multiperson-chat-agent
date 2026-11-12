@@ -174,14 +174,14 @@ async function workspaceSocket(request: Request, env: Env, rawId: string): Promi
 
 const app = new Hono<HonoEnv>();
 
-app.on(["GET", "HEAD"], "/", (c) => new Response(c.req.method === "HEAD" ? null : appHtml, { headers: pageHeaders }));
+app.on(["GET", "HEAD"], "/", (c) => new Response(c.req.method === "HEAD" ? null : appHtml(c.env.AI_MODEL), { headers: pageHeaders }));
 app.get("/admin", () => new Response(adminHtml, { headers: pageHeaders }));
 app.get("/w/:id", async (c) => {
   let id: string;
   try { id = roomId(c.req.param("id")); }
   catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid workspace ID." }, 400); }
   if (!(await c.env.ADMIN.getByName("global").getWorkspaceInfo(id))) return json({ error: "Workspace not found." }, 404);
-  return new Response(appHtml, { headers: { ...pageHeaders, "X-Robots-Tag": "noindex, nofollow" } });
+  return new Response(appHtml(c.env.AI_MODEL), { headers: { ...pageHeaders, "X-Robots-Tag": "noindex, nofollow" } });
 });
 
 app.all("/api/admin/*", (c) => adminApi(c.req.raw, c.env, new URL(c.req.url)));

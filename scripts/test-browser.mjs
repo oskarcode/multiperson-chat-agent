@@ -87,7 +87,9 @@ try {
   await expect(alice.locator('#workspaceTitle')).toHaveText('Family room');
   await expect(alice.locator('.workspace-sidebar #authorName')).toBeVisible();
   await expect(alice.locator('.workspace-sidebar .mcp-panel')).toBeVisible();
-  await expect(alice.locator('.compose-meta .model-chip')).toHaveText('Workers AI');
+  await expect(alice.locator('.compose-meta .model-chip')).toHaveText('GLM 5.3');
+  await expect(alice.locator('.compose-meta .model-chip')).toHaveAttribute('title', '@cf/zai-org/glm-5.3');
+  await expect(alice.locator('.sidebar-footer a')).toHaveCount(0);
   await expect(alice.locator('.compose-toolbar .actions button')).toHaveCount(2);
   const sidebarBounds = await alice.locator('.workspace-sidebar').boundingBox();
   const chatBounds = await alice.locator('.chat').boundingBox();
@@ -160,6 +162,18 @@ try {
   await expect(progressPage.locator('#messages .agent-activity')).toContainText('Calling tool: search');
   await expect(progressPage.locator('#messages .agent-activity')).not.toContainText('A streamed partial answer.');
   await expect(progressPage.locator('#messages')).toContainText('A streamed partial answer.');
+  const liveActivity = progressPage.locator('#messages .agent-activity');
+  await expect(liveActivity).toHaveJSProperty('open', false);
+  await expect(liveActivity.locator('.activity-events')).toBeHidden();
+  const liveOpenToggle = liveActivity.evaluate(element => new Promise(resolve => element.addEventListener('toggle', resolve, { once: true })));
+  await liveActivity.locator('summary').click();
+  await liveOpenToggle;
+  await expect(liveActivity).toHaveJSProperty('open', true);
+  await expect(liveActivity.locator('.activity-events')).toBeVisible();
+  const liveCloseToggle = liveActivity.evaluate(element => new Promise(resolve => element.addEventListener('toggle', resolve, { once: true })));
+  await liveActivity.locator('summary').click();
+  await liveCloseToggle;
+  await expect(liveActivity).toHaveJSProperty('open', false);
   progressSocket.send(JSON.stringify({ type: 'snapshot', snapshot: {
     workspace,
     messages: [{ id: 'agent-answer', authorName: 'Group Agent', kind: 'agent', text: '**Short answer**\n\n- First step\n- Second step\n\n[Read more](https://example.com) <img src=x onerror=alert(1)>' }],
@@ -169,8 +183,13 @@ try {
   await expect(progressPage.locator('#messages ul li')).toHaveCount(2);
   await expect(progressPage.locator('#messages a')).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(progressPage.locator('#messages img')).toHaveCount(0);
-  await expect(progressPage.locator('#messages .agent-activity')).toContainText('Agent response received');
-  await expect(progressPage.locator('#messages .message.agent + .agent-activity')).toHaveCount(1);
+  const responseActivity = progressPage.locator('#messages .message.agent + .agent-activity');
+  await expect(responseActivity).toContainText('Agent response received');
+  await expect(responseActivity).toHaveJSProperty('open', false);
+  const responseToggle = responseActivity.evaluate(element => new Promise(resolve => element.addEventListener('toggle', resolve, { once: true })));
+  await responseActivity.locator('summary').click();
+  await responseToggle;
+  await expect(responseActivity.locator('.activity-events')).toBeVisible();
   await progressPage.locator('#composer').fill('Please help.');
   await progressPage.locator('#sendAgent').click();
   await expect.poll(() => agentRequest?.target).toBe('agent');

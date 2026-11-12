@@ -27,7 +27,7 @@ A workspace's random ID maps deterministically to one `ChatRoom`, so its group t
 
 ## Agent and streaming ownership
 
-Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. Hono routes HTTP requests and forwards the WebSocket upgrade to `ChatRoom.fetch`, where the Durable Object accepts the server socket with the Hibernation API. `ChatRoom` adapts guest commands into Pi Durable entries/inputs and broadcasts snapshots from one conversation watch to every connected guest. Partial assistant text streams in the chat transcript. The browser associates live run/response transitions and named tool-call status events with the corresponding agent response, without duplicating response tokens or creating a second persisted transcript.
+Pi Durable and Pi AI own conversation entries, Workers AI turns, tool execution, durable reminder/follow-up tasks, recovery, and live state. Hono routes HTTP requests and forwards the WebSocket upgrade to `ChatRoom.fetch`, where the Durable Object accepts the server socket with the Hibernation API. `ChatRoom` adapts guest commands into Pi Durable entries/inputs and broadcasts snapshots from one conversation watch to every connected guest. Partial assistant text streams in the chat transcript. The browser associates collapsible live run/response transitions and named tool-call status events with the corresponding agent response; each activity section starts collapsed, and guests can expand it when needed. It does not duplicate response tokens or create a second persisted transcript.
 
 When an idle room hibernates, the WebSocket connection remains open but the JavaScript instance and in-memory conversation watch are discarded. On reconstruction, `ChatRoom` reopens its Harness and recreates the watch for sockets returned by `ctx.getWebSockets()`, then sends the latest durable snapshot. The browser also reconnects with exponential backoff and retries unacknowledged sends using the same `requestId`; group writes and agent submissions use that ID for Pi Durable deduplication. No interval heartbeat is used, so it does not keep an idle room awake.
 
@@ -35,7 +35,7 @@ Normal group messages are passive entries; **Ask Agent** submits an input to the
 
 ## Admin and guest access
 
-The admin page at `/admin` sends a bearer `ADMIN_SECRET` header to admin APIs. The secret is held as a Wrangler Worker secret and is never returned by the Worker. The browser keeps the entered secret only for that tab's `sessionStorage` session. Workspace chat APIs intentionally require no auth: possession of the random share URL grants read/write access.
+The admin page at `/admin` sends a bearer `ADMIN_SECRET` header to admin APIs. The secret is held as a Wrangler Worker secret and is never returned by the Worker. The browser keeps the entered secret only for that tab's `sessionStorage` session. The shared chat UI omits an admin shortcut because it cannot identify an admin separately from a guest; admins can open `/admin` directly. Workspace chat APIs intentionally require no auth: possession of the random share URL grants read/write access.
 
 The Worker verifies a workspace ID is active in the admin index before serving `/w/:id` or any workspace API route. Guests can change their display name; the share URL selects the workspace, with no editable ID field or ID in the chat status. Legacy `/api/rooms/:id/*` routes also require an active index entry. This is a demo gate, not a full account/ACL system.
 

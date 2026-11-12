@@ -70,7 +70,11 @@ test('admin creates shareable workspaces; guests share chat and receive snapshot
   try {
     const home = await mf.dispatchFetch('http://localhost/');
     assert.equal(home.status, 200);
-    assert.match(await home.text(), /MultiPerson Chat/);
+    const homeHtml = await home.text();
+    assert.match(homeHtml, /MultiPerson Chat/);
+    assert.match(homeHtml, /GLM 5\.3/);
+    assert.match(homeHtml, /title="@cf\/zai-org\/glm-5\.3"/);
+    assert.equal(homeHtml.includes('href="/admin"'), false);
     const adminPage = await mf.dispatchFetch('http://localhost/admin');
     assert.equal(adminPage.status, 200);
     const adminHtml = await adminPage.text();

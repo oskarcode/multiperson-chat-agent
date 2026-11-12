@@ -2,13 +2,13 @@
 
 A small Cloudflare Workers demo for shareable group-chat workspaces. An admin creates a workspace and shares its URL; anyone with that link can join without signing in. Hono routes HTTP requests and WebSocket upgrades to a SQLite-backed `ChatRoom` Durable Object per workspace. Pi Durable owns each conversation; the agent can answer, stream its activity, schedule reminders and follow-ups, and use up to eight named public MCP servers shared by all workspaces.
 
-This is a demo, not an authenticated chat product. A workspace URL is a bearer link: anyone who has it can read and post. The admin area is separately protected by one Worker secret.
+This is a demo, not an authenticated chat product. A workspace URL is a bearer link: anyone who has it can read and post. The shared chat does not show an admin shortcut; `/admin` remains separately protected by one Worker secret.
 
 ## Demo flow
 
 1. Open `/admin`, enter the admin secret, and create a named workspace. Admins can also permanently delete a workspace and its chat data.
 2. Copy its `/w/<id>` link and share it with guests. The link selects the workspace; guests only choose a display name and do not need accounts or a secret.
-3. Chat together or ask the workspace agent for help. The partial answer streams in the chat; **Live agent activity** shows run status and tool calls without duplicating response tokens.
+3. Chat together or ask the workspace agent for help. The partial answer streams in the chat; **Agent activity** is collapsed by default and can be expanded to inspect run status and tool calls. The composer displays the configured model name (default: GLM 5.3).
 4. Optionally connect up to eight named public Streamable HTTP MCP endpoints in the admin UI. Their discovered tools become available in every workspace, with server IDs distinguishing duplicate tool names.
 5. Ask the agent to schedule a reminder. Pi Durable stores the task and the room Durable Object wakes when it is due.
 
@@ -56,7 +56,7 @@ Guest browser -> /w/<workspace-id> (public share link)
 
 ### Agent streaming
 
-The workspace Durable Object maintains one Pi Durable conversation watch and broadcasts snapshots over hibernatable WebSockets. Partial assistant text streams in the chat transcript. The browser displays run/response status and named tool-call events inline with the relevant agent response, not response tokens; this activity is projected from live progress and is not a second persisted transcript. Idle Durable Objects can hibernate while sockets remain connected; after wake, the constructor rebuilds the Harness watch and broadcasts a current snapshot. The browser reconnects with backoff and retries unacknowledged sends using stable request IDs.
+The workspace Durable Object maintains one Pi Durable conversation watch and broadcasts snapshots over hibernatable WebSockets. Partial assistant text streams in the chat transcript. The browser displays collapsible run/response status and named tool-call events inline with the relevant agent response, not response tokens; users can expand or collapse each activity section. This activity is projected from live progress and is not a second persisted transcript. Idle Durable Objects can hibernate while sockets remain connected; after wake, the constructor rebuilds the Harness watch and broadcasts a current snapshot. The browser reconnects with backoff and retries unacknowledged sends using stable request IDs.
 
 ### Automatic follow-up
 
@@ -91,7 +91,7 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, inline per-response activity rendering with tool names and statuses, MCP URL validation, multi-server persistence and migration, duplicate tool-name routing, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, collapsible inline per-response activity rendering with tool names and statuses, MCP URL validation, multi-server persistence and migration, duplicate tool-name routing, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
 
 ## Deploy with a coding agent
 

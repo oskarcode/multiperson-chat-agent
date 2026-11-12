@@ -1,4 +1,5 @@
-export const appPage = String.raw`
+export function appPage(modelName: string, modelId: string): string {
+  return String.raw`
   <main class="workspace-shell">
     <aside class="workspace-sidebar" aria-label="Workspace details">
       <a class="brand" href="/" aria-label="MultiPerson Chat home">
@@ -30,7 +31,7 @@ export const appPage = String.raw`
 
       <div class="sidebar-spacer"></div>
       <div class="sidebar-public-note"><span class="note-dot" aria-hidden="true"></span><span>This is a public demo room. Share the link only with people you trust.</span></div>
-      <footer class="sidebar-footer"><span>Powered by Pi Durable + Workers AI</span><a href="/admin">Workspace admin <span aria-hidden="true">↗</span></a></footer>
+      <footer class="sidebar-footer"><span>Powered by Pi Durable · ${modelName}</span></footer>
     </aside>
 
     <section class="workspace-main" aria-label="Workspace conversation">
@@ -46,7 +47,7 @@ export const appPage = String.raw`
             <label class="sr-only" for="composer">Message</label>
             <textarea id="composer" rows="3" placeholder="Write a message to your workspace…" maxlength="4000"></textarea>
             <div class="compose-toolbar">
-              <div class="compose-meta"><span class="model-chip composer-model"><span class="model-dot" aria-hidden="true"></span>Workers AI</span><span class="compose-hint">Choose who should receive your message</span></div>
+              <div class="compose-meta"><span class="model-chip composer-model" title="${modelId}"><span class="model-dot" aria-hidden="true"></span>${modelName}</span><span class="compose-hint">Choose who should receive your message</span></div>
               <div class="actions"><button id="sendGroup" class="secondary" type="button"><span class="button-icon" aria-hidden="true">↗</span>Send to group</button><button id="sendAgent" type="button"><span class="button-icon" aria-hidden="true">✦</span>Ask Agent</button></div>
             </div>
           </div>
@@ -57,3 +58,4 @@ export const appPage = String.raw`
     </section>
   </main>
 `;
+}
