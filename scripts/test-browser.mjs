@@ -85,6 +85,13 @@ try {
   await alice.locator('#authorName').fill('Alice');
   await expect(alice.locator('#status')).toContainText('Connected to public');
   await expect(alice.locator('#workspaceTitle')).toHaveText('Family room');
+  await expect(alice.locator('#workspaceList')).toContainText('Family room');
+  await expect(alice.locator('#workspaceListScope')).toHaveText('This browser');
+  await alice.locator('#settingsButton').click();
+  await expect(alice.locator('#settingsDialog')).toBeVisible();
+  await expect(alice.locator('#mainUnlockForm')).toBeVisible();
+  await expect(alice.locator('#mainAdminContent')).toBeHidden();
+  await alice.locator('#closeSettings').click();
   await expect(alice.locator('.workspace-sidebar #authorName')).toBeVisible();
   await expect(alice.locator('.workspace-sidebar .mcp-panel')).toBeVisible();
   await expect(alice.locator('.compose-meta .model-chip')).toHaveText('GLM 5.3');
@@ -128,6 +135,27 @@ try {
   await familyItem.getByRole('button', { name: 'Delete workspace' }).click();
   await expect(admin.locator('#workspaces')).not.toContainText('Family room');
   await expect(admin.locator('#workspaceStatus')).toContainText('Workspace deleted');
+
+  await admin.evaluate(() => sessionStorage.removeItem('workspace-admin-secret'));
+  await admin.goto(base + '/');
+  await expect(admin.locator('.empty')).toContainText('Welcome to your workspaces');
+  await admin.locator('.empty-settings-button').click();
+  await expect(admin.locator('#settingsDialog')).toBeVisible();
+  await expect(admin.locator('#mainUnlockForm')).toBeVisible();
+  await admin.locator('#mainAdminSecret').fill('test-admin-secret');
+  await admin.locator('#mainUnlockForm button[type="submit"]').click();
+  await expect(admin.locator('#mainAdminContent')).toBeVisible();
+  await expect(admin.locator('#workspaceListScope')).toHaveText('All workspaces');
+  await expect(admin.locator('#workspaceList')).toContainText('Project room');
+  await expect(admin.locator('#settingsMcpServers .settings-list-item')).toHaveCount(2);
+  await admin.locator('#createWorkspace').click();
+  await expect(admin).toHaveURL(/\/w\/[a-f0-9-]{36}$/u);
+  await expect(admin.locator('#workspaceTitle')).toContainText('Workspace');
+  await expect(admin.locator('#workspaceList')).toContainText('Workspace');
+  admin.once('dialog', dialog => dialog.accept());
+  await admin.locator('#workspaceList .workspace-delete-button').first().click();
+  await expect(admin).toHaveURL(base + '/');
+  await expect(admin.locator('#workspaceList')).not.toContainText('Workspace ·');
 
   const progressPage = await browser.newPage();
   progressPage.on('pageerror', error => errors.push(error.message));
@@ -203,5 +231,5 @@ try {
   expect(await bob.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(alice.locator('#mcpSummary')).toHaveText('not connected');
   expect(errors).toEqual([]);
-  console.log('Browser tests passed: shared workspaces, admin deletion, guest chat, safe Markdown, inline per-response agent activity, MCP configuration, and mobile layout.');
+  console.log('Browser tests passed: sidebar workspace history, Settings admin unlock/create/delete, guest chat, safe Markdown, inline activity, MCP configuration, and mobile layout.');
 } finally { await browser?.close(); await mf.dispose(); }

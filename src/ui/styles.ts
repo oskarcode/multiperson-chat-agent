@@ -37,7 +37,23 @@ export const appStyles = String.raw`
   .muted { color: var(--muted); font-size: .8rem; line-height: 1.55; }
   .hidden, .sr-only { display: none !important; }
   .workspace-shell { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 14px; width: min(100%, 1600px); height: 100dvh; min-height: 0; margin: 0 auto; padding: 16px; }
-  .workspace-sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 0; overflow: hidden auto; border: 1px solid #e7ebe6; border-radius: 22px; padding: 20px 16px 14px; background: rgb(255 255 255 / 94%); box-shadow: var(--shadow); }
+  .workspace-sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 0; overflow: hidden auto; border: 1px solid #e7ebe6; border-radius: 22px; padding: 20px 14px 12px; background: rgb(255 255 255 / 96%); box-shadow: var(--shadow); }
+  .workspace-nav-block { min-height: 0; padding: 25px 0 12px; }
+  .workspace-nav-heading { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: 0 .35rem .55rem; }
+  .workspace-list-scope { color: #9aa39b; font-size: .61rem; }
+  .workspace-nav-list { display: grid; gap: .2rem; overflow: auto; max-height: min(52vh, 520px); margin: 0; padding: 0; list-style: none; }
+  .workspace-nav-item { display: flex; min-width: 0; align-items: center; gap: .35rem; border: 1px solid transparent; border-radius: 10px; padding: .3rem; transition: background .15s ease, border-color .15s ease; }
+  .workspace-nav-item:hover { border-color: #e9eee9; background: #f8faf8; }
+  .workspace-nav-item.current { border-color: #e2ece3; background: #f0f6f1; }
+  .workspace-nav-link { display: flex; flex: 1; min-width: 0; align-items: center; gap: .58rem; border-radius: 7px; padding: .38rem .35rem; color: #4d5a50; font-size: .77rem; font-weight: 570; text-decoration: none; }
+  .workspace-nav-link:hover { color: var(--green); text-decoration: none; }
+  .workspace-nav-item.current .workspace-nav-link { color: #315d3d; font-weight: 700; }
+  .workspace-nav-icon { display: grid; flex: 0 0 auto; place-items: center; width: 1.75rem; height: 1.75rem; border: 1px solid #e7ece7; border-radius: .55rem; background: white; color: #809083; font-size: .76rem; }
+  .workspace-nav-item.current .workspace-nav-icon { border-color: #d7e5d9; background: #f9fcf9; color: #4a7955; }
+  .workspace-nav-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace-delete-button { flex: 0 0 auto; width: 1.85rem; min-height: 1.85rem; border: 0; border-radius: .5rem; padding: 0; background: transparent; color: #9a7770; font-size: 1rem; }
+  .workspace-delete-button:hover:not(:disabled) { background: #fff0ed; color: #a43e34; box-shadow: none; transform: none; }
+  .workspace-nav-empty { padding: .75rem .55rem; color: #939d94; font-size: .72rem; line-height: 1.5; }
   .brand { display: flex; align-items: center; gap: .7rem; color: inherit; text-decoration: none; }
   .brand:hover { text-decoration: none; }
   .brand-mark { display: grid; flex: 0 0 auto; place-items: center; width: 2.35rem; height: 2.35rem; border: 1px solid #d9e8dc; border-radius: .8rem; background: linear-gradient(145deg, #f3f8f3, #e8f1e9); color: var(--green); font-size: 1.18rem; }
@@ -76,10 +92,13 @@ export const appStyles = String.raw`
   .mcp-server-tool-list { display: grid; gap: .3rem; margin: .18rem 0 .2rem; padding: 0; list-style: none; }
   .mcp-server-tool-list li { color: #78827a; font-size: .65rem; line-height: 1.4; overflow-wrap: anywhere; }
   .sidebar-spacer { flex: 1 0 20px; }
-  .sidebar-public-note { display: flex; align-items: flex-start; gap: .5rem; border: 1px solid #f1e8d5; border-radius: 11px; padding: .65rem; background: #fffaf0; color: #82765e; font-size: .68rem; line-height: 1.45; }
-  .note-dot { flex: 0 0 auto; width: .42rem; height: .42rem; margin-top: .18rem; border-radius: 50%; background: #d0a34a; }
-  .sidebar-footer { display: grid; gap: .55rem; padding: 13px 2px 0; color: #9aa29b; font-size: .65rem; line-height: 1.45; }
-  .sidebar-footer a { width: fit-content; color: #56735d; font-size: .71rem; font-weight: 700; }
+  .sidebar-footer { display: grid; gap: .7rem; padding: 12px 2px 0; color: #9aa29b; font-size: .65rem; line-height: 1.45; }
+  .sidebar-settings-button { justify-content: flex-start; min-height: 2.7rem; border: 1px solid #e8ece8; border-radius: .72rem; padding: .55rem .65rem; background: #fff; color: #59665b; font-size: .76rem; font-weight: 650; }
+  .sidebar-settings-button:hover:not(:disabled) { border-color: #d8e4d9; background: #f7faf7; color: #315d3d; box-shadow: none; transform: none; }
+  .settings-gear { display: grid; place-items: center; width: 1.55rem; height: 1.55rem; border: 1px solid #e6ebe6; border-radius: .48rem; background: #f9fbf9; color: #718073; font-size: .84rem; }
+  .settings-arrow { margin-left: auto; color: #a0a8a1; font-size: .77rem; }
+  .sidebar-model-note { padding: 0 .25rem; color: #9aa29b; font-size: .63rem; }
+  .chat-workspace-title { overflow: hidden; margin-top: .2rem; color: #354239; font-size: 1.18rem; font-weight: 730; letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; }
   .workspace-main { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
   .chat-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 1rem; padding: 2px 5px 13px; }
   .chat-heading { min-width: 0; }
@@ -99,6 +118,8 @@ export const appStyles = String.raw`
   .empty-copy { display: grid; gap: .42rem; max-width: 350px; }
   .empty-copy strong { color: #354237; font-size: 1.15rem; font-weight: 700; letter-spacing: -.025em; }
   .empty-copy span { color: #828b83; font-size: .84rem; line-height: 1.6; }
+  .empty-settings-button { min-height: 2.35rem; margin-top: 1rem; border-color: #d9e7db; border-radius: .7rem; padding: .5rem .8rem; background: #f4f8f4; color: #3e6c48; font-size: .75rem; }
+  .empty-settings-button:hover:not(:disabled) { background: #eaf3eb; box-shadow: none; }
   .message { display: flex; align-items: flex-start; gap: .68rem; width: fit-content; max-width: min(90%, 780px); margin: .2rem 0 .75rem; }
   .message.agent { max-width: min(96%, 860px); }
   .message.mine { align-self: flex-end; flex-direction: row-reverse; }
@@ -163,6 +184,33 @@ export const appStyles = String.raw`
   .error { min-height: 0; margin: 0; padding: 0 1rem; color: #a33e35; font-size: .77rem; }
   .error:not(:empty) { padding-top: .25rem; padding-bottom: .5rem; }
 
+  .settings-dialog { width: min(100% - 2rem, 760px); max-width: 760px; max-height: min(90dvh, 900px); overflow: hidden; border: 1px solid #e1e8e1; border-radius: 20px; padding: 0; background: #f7f9f7; color: var(--ink); box-shadow: 0 28px 90px rgb(24 39 27 / 22%); }
+  .settings-dialog::backdrop { background: rgb(25 35 28 / 38%); backdrop-filter: blur(3px); }
+  .settings-modal { max-height: min(90dvh, 900px); overflow: auto; padding: 1.25rem; }
+  .settings-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; }
+  .settings-header h2 { margin-top: .22rem; font-size: 1.28rem; letter-spacing: -.035em; }
+  .settings-header .muted { margin-top: .28rem; }
+  button.settings-close { flex: 0 0 auto; width: 2.25rem; min-height: 2.25rem; border: 1px solid #e3e8e3; border-radius: .7rem; padding: 0; background: white; color: #69756b; font-size: 1.35rem; }
+  button.settings-close:hover:not(:disabled) { background: #eef3ee; box-shadow: none; transform: none; }
+  .settings-section { margin-top: .85rem; border: 1px solid #e5eae5; border-radius: 14px; padding: 1rem; background: white; }
+  .settings-section-heading { display: flex; align-items: flex-start; gap: .65rem; margin-bottom: .85rem; }
+  .settings-section-heading h3 { color: #354137; font-size: .9rem; }
+  .settings-section-heading .muted { margin-top: .22rem; font-size: .72rem; }
+  .settings-unlock-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .6rem; }
+  .settings-unlock-form input, .settings-mcp-form input { min-width: 0; padding: .65rem .72rem; font-size: .8rem; }
+  .settings-unlock-form button, .settings-mcp-form button, #createWorkspace { min-height: 2.45rem; padding: .55rem .75rem; font-size: .75rem; white-space: nowrap; }
+  .settings-gate-actions { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+  .settings-gate-actions .admin-status { margin-bottom: 0; }
+  .settings-mcp-form { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr) auto; align-items: end; gap: .55rem; }
+  .settings-mcp-form label { font-size: .74rem; }
+  .settings-list { display: grid; gap: .48rem; margin: .6rem 0 0; padding: 0; list-style: none; }
+  .settings-list-item { display: flex; align-items: center; justify-content: space-between; gap: .7rem; border: 1px solid #e9ede9; border-radius: 10px; padding: .6rem .68rem; background: #fbfcfb; }
+  .settings-list-details { display: grid; min-width: 0; gap: .2rem; }
+  .settings-list-title { color: #415247; font-size: .76rem; font-weight: 700; overflow-wrap: anywhere; }
+  .settings-list-meta { color: #869087; font-size: .66rem; line-height: 1.4; overflow-wrap: anywhere; }
+  .settings-list-actions { display: flex; flex: 0 0 auto; gap: .35rem; }
+  .settings-list-actions button { min-height: 2rem; padding: .36rem .5rem; font-size: .66rem; }
+  .settings-guest-note { margin: .9rem .15rem .1rem; color: #879087; font-size: .69rem; line-height: 1.5; }
   .admin-shell { width: min(100% - 2rem, 1120px); margin: 0 auto; padding: 32px 0 24px; }
   .admin-topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 24px; }
   .admin-header { align-items: flex-start; }
@@ -214,31 +262,42 @@ export const appStyles = String.raw`
   @media (max-width: 820px) {
     .workspace-shell { grid-template-columns: 228px minmax(0, 1fr); gap: 10px; padding: 10px; }
     .workspace-sidebar { border-radius: 18px; padding: 16px 12px 12px; }
+    .workspace-nav-block { padding-top: 18px; }
     .admin-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 640px) {
     body { background: #f4f6f3; }
     .workspace-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px; width: 100%; height: 100dvh; padding: 8px; }
-    .workspace-sidebar { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto; align-items: center; gap: 8px 10px; overflow: visible; border-radius: 15px; padding: 10px; }
+    .workspace-sidebar { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto auto; align-items: center; gap: 7px 9px; overflow: visible; border-radius: 15px; padding: 9px; }
     .workspace-sidebar > .brand { grid-column: 1; grid-row: 1; gap: .5rem; }
     .brand-mark { width: 2rem; height: 2rem; border-radius: .65rem; font-size: 1rem; }
     .brand-name { font-size: .72rem; }
     .brand-caption { font-size: .64rem; }
-    .sidebar-block.workspace-card { grid-column: 1; grid-row: 2; border: 0; padding: 0 0 0 2px; }
-    .workspace-card .eyebrow { display: none; }
-    .workspace-card h1 { overflow: hidden; margin: 0; font-size: .86rem; text-overflow: ellipsis; white-space: nowrap; }
-    .access-note { display: none; }
-    .profile-block { grid-column: 2; grid-row: 1 / span 2; width: min(42vw, 190px); border: 0; padding: 0; }
+    .workspace-nav-block { grid-column: 1 / -1; grid-row: 2; width: 100%; padding: 0; }
+    .workspace-nav-heading { display: none; }
+    .workspace-nav-list { display: flex; max-height: none; gap: .35rem; overflow-x: auto; padding: .08rem 0 .18rem; }
+    .workspace-nav-item { flex: 0 0 auto; max-width: min(65vw, 240px); gap: .15rem; padding: .12rem; }
+    .workspace-nav-link { gap: .38rem; padding: .25rem .3rem; font-size: .7rem; }
+    .workspace-nav-icon { width: 1.55rem; height: 1.55rem; }
+    .workspace-delete-button { width: 1.65rem; min-height: 1.65rem; }
+    .workspace-nav-empty { padding: .25rem .4rem; font-size: .66rem; }
+    .profile-block { grid-column: 1; grid-row: 3; width: min(58vw, 250px); border: 0; padding: 0; }
     .profile-block > .eyebrow, .field-hint { display: none; }
     .profile-field { gap: .35rem; margin: 0; }
-    .profile-avatar { width: 1.75rem; height: 1.75rem; }
-    .profile-field input { padding: .42rem .15rem; font-size: .77rem; }
-    .workspace-sidebar .mcp-panel { display: block; grid-column: 1 / -1; grid-row: 3; margin-top: 0; }
+    .profile-avatar { width: 1.65rem; height: 1.65rem; }
+    .profile-field input { padding: .35rem .15rem; font-size: .72rem; }
+    .workspace-sidebar .mcp-panel { display: block; grid-column: 1 / -1; grid-row: 4; margin-top: 0; }
+    .mcp-panel summary { min-height: 38px; }
     .mcp-panel[open] { max-height: 22vh; overflow-y: auto; }
-    .sidebar-spacer, .sidebar-public-note, .sidebar-footer { display: none; }
+    .sidebar-spacer { display: none; }
+    .sidebar-footer { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; padding: 0; }
+    .sidebar-settings-button { min-height: 2.25rem; gap: .3rem; padding: .35rem .48rem; font-size: .68rem; }
+    .settings-gear { width: 1.35rem; height: 1.35rem; }
+    .settings-arrow, .sidebar-model-note { display: none; }
     .workspace-main { min-height: 0; }
     .chat-header { align-items: flex-start; gap: .5rem; padding: 0 3px 7px; }
     .chat-heading .eyebrow { font-size: .59rem; }
+    .chat-workspace-title { max-width: 44vw; font-size: .86rem; }
     .chat-subtitle { max-width: 45vw; margin-top: .18rem; font-size: .68rem; }
     .header-status { flex-direction: column-reverse; align-items: flex-end; gap: .25rem; }
     .header-status > .model-chip { display: none; }
@@ -268,6 +327,15 @@ export const appStyles = String.raw`
     .button-icon { display: none; }
     .composer-footnote { padding: .38rem .1rem .05rem; font-size: .58rem; }
     .composer-footnote span:last-child { display: none; }
+    .settings-dialog { width: calc(100% - .8rem); max-height: 94dvh; border-radius: 15px; }
+    .settings-modal { max-height: 94dvh; padding: .85rem; }
+    .settings-header h2 { font-size: 1.12rem; }
+    .settings-section { padding: .8rem; }
+    .settings-unlock-form, .settings-mcp-form { grid-template-columns: minmax(0, 1fr); }
+    .settings-unlock-form button, .settings-mcp-form button, #createWorkspace { width: 100%; }
+    .settings-list-item { align-items: stretch; flex-direction: column; }
+    .settings-list-actions { justify-content: stretch; }
+    .settings-list-actions button { flex: 1; }
     .admin-shell { width: min(100% - 1.1rem, 680px); padding-top: 18px; }
     .admin-topbar { align-items: flex-start; margin-bottom: 17px; }
     .admin-header h1 { font-size: 1.25rem; }

@@ -74,6 +74,9 @@ test('admin creates shareable workspaces; guests share chat and receive snapshot
     assert.match(homeHtml, /MultiPerson Chat/);
     assert.match(homeHtml, /GLM 5\.3/);
     assert.match(homeHtml, /title="@cf\/zai-org\/glm-5\.3"/);
+    assert.match(homeHtml, /id="workspaceList"/);
+    assert.match(homeHtml, /id="settingsButton"/);
+    assert.match(homeHtml, /id="mainAdminSecret"/);
     assert.equal(homeHtml.includes('href="/admin"'), false);
     const adminPage = await mf.dispatchFetch('http://localhost/admin');
     assert.equal(adminPage.status, 200);

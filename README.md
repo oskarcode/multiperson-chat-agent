@@ -2,14 +2,14 @@
 
 A small Cloudflare Workers demo for shareable group-chat workspaces. An admin creates a workspace and shares its URL; anyone with that link can join without signing in. Hono routes HTTP requests and WebSocket upgrades to a SQLite-backed `ChatRoom` Durable Object per workspace. Pi Durable owns each conversation; the agent can answer, stream its activity, schedule reminders and follow-ups, and use up to eight named public MCP servers shared by all workspaces.
 
-This is a demo, not an authenticated chat product. A workspace URL is a bearer link: anyone who has it can read and post. The shared chat does not show an admin shortcut; `/admin` remains separately protected by one Worker secret.
+This is a demo, not an authenticated chat product. A workspace URL is a bearer link: anyone who has it can read and post. The chat sidebar remembers workspaces opened in the current browser; it is local history, not an account or membership list. Admins can unlock global workspace and MCP controls from **Settings** at the bottom of the sidebar. `/admin` remains available as a separate admin page.
 
 ## Demo flow
 
-1. Open `/admin`, enter the admin secret, and create a named workspace. Admins can also permanently delete a workspace and its chat data.
-2. Copy its `/w/<id>` link and share it with guests. The link selects the workspace; guests only choose a display name and do not need accounts or a secret.
+1. Open the chat homepage and select **Settings** at the bottom of the left sidebar. Enter the admin secret to see all workspaces, create a workspace with an automatic title, or permanently delete a workspace and its chat data.
+2. Copy a workspace share link from Settings and share it with guests. The link selects the workspace; guests only choose a display name and do not need accounts or a secret. Workspaces guests open appear in that browser's sidebar.
 3. Chat together or ask the workspace agent for help. The partial answer streams in the chat; **Agent activity** is collapsed by default and can be expanded to inspect run status and tool calls. The composer displays the configured model name (default: GLM 5.3).
-4. Optionally connect up to eight named public Streamable HTTP MCP endpoints in the admin UI. Their discovered tools become available in every workspace, with server IDs distinguishing duplicate tool names.
+4. Optionally connect up to eight named public Streamable HTTP MCP endpoints in **Settings**. Their discovered tools become available in every workspace, with server IDs distinguishing duplicate tool names.
 5. Ask the agent to schedule a reminder. Pi Durable stores the task and the room Durable Object wakes when it is due.
 
 ## Run locally
@@ -20,7 +20,7 @@ pnpm admin:secret
 pnpm exec wrangler dev
 ```
 
-`pnpm admin:secret` creates a random local `ADMIN_SECRET` in the ignored `.dev.vars` file and never prints its value. Read that file locally to unlock `/admin`. The deploy helper also creates this local secret if needed and provisions the same value to Cloudflare. Do not commit or share `.dev.vars`.
+`pnpm admin:secret` creates a random local `ADMIN_SECRET` in the ignored `.dev.vars` file and never prints its value. Read that file locally to unlock **Settings** in the chat sidebar or `/admin`. The deploy helper also creates this local secret if needed and provisions the same value to Cloudflare. Do not commit or share `.dev.vars`.
 
 Workers AI is configured in `wrangler.jsonc` with default model `@cf/zai-org/glm-5.3`. GLM-5.3 requires a Workers Paid plan or prepaid AI Gateway credits; agent calls during local development still use Cloudflare Workers AI remotely and may incur usage charges.
 
@@ -51,7 +51,7 @@ Guest browser -> /w/<workspace-id> (public share link)
 - `src/session/schedule-task.ts` and `src/session/schedule-tools.ts` — Pi-native reminder tools and task delivery.
 - `src/session/follow-up-classifier.ts` and `src/session/follow-up-task.ts` — classify open turns, cancel stale candidates, and deliver follow-ups.
 - `src/integrations/mcp.ts` — public HTTPS Streamable HTTP MCP client.
-- `src/ui/` — no-build chat and admin pages with browser JavaScript.
+- `src/ui/` — no-build chat/sidebar/settings UI and the separate admin page, with browser JavaScript.
 - `worker-configuration.d.ts` — Wrangler-generated binding types.
 
 ### Agent streaming
@@ -62,9 +62,13 @@ The workspace Durable Object maintains one Pi Durable conversation watch and bro
 
 After a group message, Workers AI reviews the recent conversation for unanswered questions, requests, decisions, and blockers—not just question marks in the newest line. If a useful check-in is warranted, Pi Durable schedules it for a 15-minute quiet period. New group messages reset the review; an agent answer also triggers a fresh review and invalidates stale follow-ups. The follow-up task reads the conversation context before writing its check-in.
 
+### Workspace navigation and settings
+
+The left sidebar lists workspaces visited in the current browser. That guest list is stored locally and is not synced between browsers or devices; the demo has no guest accounts, invitations, or membership system. After an admin enters the secret in **Settings**, the sidebar switches to the global workspace index and exposes delete controls. The Settings panel can create a workspace with an automatic title, copy a public share link, delete a workspace, and manage shared MCP connectors. The secret remains in the tab's `sessionStorage`, never `localStorage`.
+
 ### MCP configuration
 
-The admin UI can connect up to eight named public HTTPS Streamable HTTP MCP servers, tests each endpoint and discovers its tools before saving it globally for all workspaces. Each tool is associated with its server ID, so two servers may advertise the same tool name without ambiguity. Removing a server withdraws its tools from agent use across all workspaces. Guests can see server names and advertised tools, but not endpoint URLs. OAuth, private endpoints, and saved credentials are not supported. The admin secret is required to change these outbound destinations. Existing deployments migrate their previous single MCP URL into the new connector list on first access.
+The Settings panel and legacy `/admin` page can connect up to eight named public HTTPS Streamable HTTP MCP servers, test each endpoint, and discover its tools before saving it globally for all workspaces. Each tool is associated with its server ID, so two servers may advertise the same tool name without ambiguity. Removing a server withdraws its tools from agent use across all workspaces. Guests can see server names and advertised tools, but not endpoint URLs. OAuth, private endpoints, and saved credentials are not supported. The admin secret is required to change these outbound destinations. Existing deployments migrate their previous single MCP URL into the new connector list on first access.
 
 ## API
 
@@ -91,7 +95,7 @@ pnpm check
 node scripts/test-browser.mjs
 ```
 
-Checks cover admin-secret gating, workspace creation/deletion and state, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, collapsible inline per-response activity rendering with tool names and statuses, MCP URL validation, multi-server persistence and migration, duplicate tool-name routing, context-aware follow-up classification/task behavior, Wrangler packaging, and browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
+Checks cover admin-secret gating, workspace creation/deletion and state, sidebar workspace history, Settings unlock/create/delete and connector configuration, public guest sharing without an ID field, workspace isolation, Hono routing, WebSocket snapshots and sends, idle connection continuity, collapsible inline per-response activity rendering with tool names and statuses, MCP URL validation, multi-server persistence and migration, duplicate tool-name routing, context-aware follow-up classification/task behavior, Wrangler packaging, and desktop/mobile browser layout. Tests use a mocked Workers AI binding; local idle-connection coverage does not prove a production hibernation event. Tests also do not prove live Workers AI, live MCP-server, or wall-clock reminder delivery.
 
 ## Deploy with a coding agent
 
@@ -115,7 +119,7 @@ Read the repository-root AGENTS.md completely and follow it. I want you to deplo
 pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes
 ```
 
-The helper verifies the Wrangler account, runs checks, deploys, and smoke-checks the chat page. It stores a random admin secret in ignored `.dev.vars` if one is not already there, then uploads it as the Worker secret `ADMIN_SECRET` if the deployed Worker does not already have that secret. Open `<Worker URL>/admin` and read the local `.dev.vars` value to unlock the admin UI; the secret is never printed by the helper.
+The helper verifies the Wrangler account, runs checks, deploys, and smoke-checks the chat page. It stores a random admin secret in ignored `.dev.vars` if one is not already there, then uploads it as the Worker secret `ADMIN_SECRET` if the deployed Worker does not already have that secret. Open `<Worker URL>`, select **Settings** at the bottom of the sidebar, and enter the local `.dev.vars` value; `/admin` remains available as a separate admin page. The secret is never printed by the helper.
 
 The prior deployment already retired the old `MultiPersonChat` and `PiSession` classes. This change keeps the deployed `ChatRoom` class and adds `DemoAdmin`; existing ChatRoom data is not migrated or reset by this change.
 

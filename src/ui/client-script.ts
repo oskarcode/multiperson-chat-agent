@@ -8,6 +8,7 @@ export const appClientScript = String.raw`
       messages: [], progress: { active: false, phase: 'idle', partialText: '', tools: [] },
       currentActivity: [], activityByMessage: new Map(), activityOpenByKey: new Map(), activeMessageId: null, snapshotReceived: false,
       socket: null, reconnectTimer: null, reconnectDelay: 500, pending: new Map(),
+      adminUnlocked: false, adminWorkspaces: [], mcpServers: [],
     };
     const api = async (path, options = {}) => {
       const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } });
@@ -15,7 +16,137 @@ export const appClientScript = String.raw`
       if (!response.ok) throw new Error(data.error || 'Request failed');
       return data;
     };
+    const adminSecretKey = 'workspace-admin-secret';
+    const recentWorkspaceKey = 'chat-workspaces';
+    let adminSecret = sessionStorage.getItem(adminSecretKey) || '';
+    function readRecentWorkspaces() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(recentWorkspaceKey) || '[]');
+        return Array.isArray(stored) ? stored.filter((workspace) => workspace && typeof workspace.id === 'string' && /^[A-Za-z0-9._-]{1,80}$/u.test(workspace.id) && typeof workspace.title === 'string').slice(0, 40) : [];
+      } catch { return []; }
+    }
+    let recentWorkspaces = readRecentWorkspaces();
+    window.addEventListener('storage', (event) => {
+      if (event.key === recentWorkspaceKey) { recentWorkspaces = readRecentWorkspaces(); renderWorkspaceNav(); }
+    });
     const roomPath = (suffix) => (state.legacy ? '/api/rooms/' : '/api/workspaces/') + encodeURIComponent(state.roomId) + '/' + suffix;
+    const adminApi = async (path, options = {}) => {
+      const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminSecret, ...(options.headers || {}) } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { const error = new Error(data.error || 'Admin request failed'); error.status = response.status; throw error; }
+      return data;
+    };
+    function setAdminStatus(element, message, error = false) {
+      element.textContent = message;
+      element.classList.toggle('admin-error', error);
+    }
+    function rememberWorkspace(workspace) {
+      if (!workspace || typeof workspace.id !== 'string' || !/^[A-Za-z0-9._-]{1,80}$/u.test(workspace.id) || typeof workspace.title !== 'string') return;
+      recentWorkspaces = [{ id: workspace.id, title: workspace.title, visitedAt: Date.now() }, ...recentWorkspaces.filter((item) => item.id !== workspace.id)].slice(0, 40);
+      try { localStorage.setItem(recentWorkspaceKey, JSON.stringify(recentWorkspaces)); } catch { /* Workspace navigation remains usable if storage is unavailable. */ }
+      renderWorkspaceNav();
+    }
+    function removeRecentWorkspace(id) {
+      recentWorkspaces = recentWorkspaces.filter((workspace) => workspace.id !== id);
+      try { localStorage.setItem(recentWorkspaceKey, JSON.stringify(recentWorkspaces)); } catch { /* Ignore browser storage restrictions. */ }
+    }
+    function renderWorkspaceNav() {
+      const list = $('workspaceList');
+      if (!list) return;
+      const workspaces = state.adminUnlocked ? state.adminWorkspaces : recentWorkspaces;
+      $('workspaceListScope').textContent = state.adminUnlocked ? 'All workspaces' : 'This browser';
+      list.replaceChildren();
+      if (!workspaces.length) {
+        const empty = document.createElement('li'); empty.className = 'workspace-nav-empty';
+        empty.textContent = state.adminUnlocked ? 'No workspaces yet. Open Settings to create one.' : 'Open a workspace share link to add it here.';
+        list.append(empty); return;
+      }
+      for (const workspace of workspaces) {
+        const item = document.createElement('li'); item.className = 'workspace-nav-item' + (workspace.id === state.roomId ? ' current' : '');
+        const link = document.createElement('a'); link.className = 'workspace-nav-link'; link.href = '/w/' + encodeURIComponent(workspace.id);
+        if (workspace.id === state.roomId) link.setAttribute('aria-current', 'page');
+        const icon = document.createElement('span'); icon.className = 'workspace-nav-icon'; icon.setAttribute('aria-hidden', 'true'); icon.textContent = '▦';
+        const title = document.createElement('span'); title.className = 'workspace-nav-title'; title.textContent = workspace.title;
+        link.append(icon, title);
+        if (state.adminUnlocked) {
+          const remove = document.createElement('button'); remove.className = 'workspace-delete-button'; remove.type = 'button';
+          remove.setAttribute('aria-label', (workspace.deleting ? 'Retry deletion of ' : 'Delete ') + workspace.title); remove.title = workspace.deleting ? 'Retry deletion' : 'Delete workspace'; remove.textContent = '×';
+          remove.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); deleteWorkspace(workspace); });
+          item.append(link, remove);
+        } else item.append(link);
+        list.append(item);
+      }
+    }
+    function renderSettingsWorkspaces() {
+      const list = $('settingsWorkspaces'); list.replaceChildren();
+      if (!state.adminWorkspaces.length) {
+        const empty = document.createElement('li'); empty.className = 'workspace-nav-empty'; empty.textContent = 'No workspaces yet. Create one to start.'; list.append(empty); return;
+      }
+      for (const workspace of state.adminWorkspaces) {
+        const item = document.createElement('li'); item.className = 'settings-list-item';
+        const details = document.createElement('div'); details.className = 'settings-list-details';
+        const link = document.createElement('a'); link.className = 'settings-list-title'; link.href = '/w/' + encodeURIComponent(workspace.id); link.textContent = workspace.title;
+        const meta = document.createElement('span'); meta.className = 'settings-list-meta'; meta.textContent = workspace.deleting ? 'Deletion pending · retry cleanup' : location.origin + link.pathname;
+        details.append(link, meta);
+        const actions = document.createElement('div'); actions.className = 'settings-list-actions';
+        if (!workspace.deleting) {
+          const copy = document.createElement('button'); copy.className = 'secondary'; copy.type = 'button'; copy.textContent = 'Copy link';
+          copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(location.origin + link.pathname); setAdminStatus($('mainWorkspaceStatus'), 'Share link copied.'); } catch { setAdminStatus($('mainWorkspaceStatus'), 'Could not copy automatically. Open the workspace to copy its URL.'); } });
+          actions.append(copy);
+        }
+        const remove = document.createElement('button'); remove.className = 'danger'; remove.type = 'button'; remove.textContent = workspace.deleting ? 'Retry deletion' : 'Delete';
+        remove.addEventListener('click', () => deleteWorkspace(workspace)); actions.append(remove);
+        item.append(details, actions); list.append(item);
+      }
+    }
+    async function deleteWorkspace(workspace) {
+      if (!workspace.deleting && !window.confirm('Permanently delete “' + workspace.title + '”? Its messages, scheduled work, and share link will be removed.')) return;
+      setAdminStatus($('mainWorkspaceStatus'), workspace.deleting ? 'Retrying workspace cleanup…' : 'Deleting workspace and stored chat…');
+      try {
+        await adminApi('/api/admin/workspaces/' + encodeURIComponent(workspace.id), { method: 'DELETE' });
+        removeRecentWorkspace(workspace.id);
+        setAdminStatus($('mainWorkspaceStatus'), 'Workspace deleted. Its share link no longer works.');
+        if (state.roomId === workspace.id) { location.assign('/'); return; }
+        await refreshMainAdmin();
+      } catch (error) { setAdminStatus($('mainWorkspaceStatus'), 'Deletion is incomplete: ' + error.message, true); await refreshMainAdmin(); }
+    }
+    function renderSettingsMcpServers() {
+      const list = $('settingsMcpServers'); list.replaceChildren();
+      if (!state.mcpServers.length) {
+        const empty = document.createElement('li'); empty.className = 'workspace-nav-empty'; empty.textContent = 'No shared MCP connectors configured.'; list.append(empty); return;
+      }
+      for (const server of state.mcpServers) {
+        const item = document.createElement('li'); item.className = 'settings-list-item';
+        const details = document.createElement('div'); details.className = 'settings-list-details';
+        const name = document.createElement('strong'); name.className = 'settings-list-title'; name.textContent = server.name;
+        const meta = document.createElement('span'); meta.className = 'settings-list-meta'; meta.textContent = server.url;
+        const health = document.createElement('span'); health.className = 'settings-list-meta' + (server.error ? ' admin-error' : ''); health.textContent = server.error ? 'Connection issue: ' + server.error : (server.tools?.length || 0) + ' tools available';
+        details.append(name, meta, health);
+        const remove = document.createElement('button'); remove.className = 'danger'; remove.type = 'button'; remove.textContent = 'Remove';
+        remove.addEventListener('click', async () => {
+          if (!window.confirm('Remove “' + server.name + '” and its tools from all workspaces?')) return;
+          remove.disabled = true;
+          try { await adminApi('/api/admin/mcp-servers/' + encodeURIComponent(server.id), { method: 'DELETE' }); setAdminStatus($('mainMcpStatus'), server.name + ' removed from all workspaces.'); await refreshMainAdmin(); }
+          catch (error) { setAdminStatus($('mainMcpStatus'), error.message, true); remove.disabled = false; }
+        });
+        item.append(details, remove); list.append(item);
+      }
+    }
+    async function refreshMainAdmin() {
+      try {
+        const data = await adminApi('/api/admin/state');
+        state.adminUnlocked = true; state.adminWorkspaces = data.workspaces || []; state.mcpServers = data.mcpServers || [];
+        $('mainAdminContent').classList.remove('hidden'); $('mainUnlockForm').classList.add('hidden'); $('lockAdmin').classList.remove('hidden');
+        const unavailable = state.mcpServers.filter((server) => server.error).length;
+        setAdminStatus($('mainGateStatus'), 'Admin controls unlocked for this browser tab.' + (unavailable ? ' ' + unavailable + ' MCP connection issue(s) shown below.' : ''), unavailable > 0);
+        renderWorkspaceNav(); renderSettingsWorkspaces(); renderSettingsMcpServers();
+      } catch (error) {
+        state.adminUnlocked = false; state.adminWorkspaces = []; state.mcpServers = [];
+        if (error.status === 401) { adminSecret = ''; sessionStorage.removeItem(adminSecretKey); }
+        $('mainAdminContent').classList.add('hidden'); $('mainUnlockForm').classList.remove('hidden'); $('lockAdmin').classList.add('hidden');
+        setAdminStatus($('mainGateStatus'), error.message, true); renderWorkspaceNav();
+      }
+    }
     function appendInlineMarkdown(parent, text) {
       const tokenPattern = /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|\x60[^\x60]+\x60|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/gu;
       let offset = 0;
@@ -172,10 +303,17 @@ export const appClientScript = String.raw`
       if (!state.messages.length && !state.progress.partialText) {
         const empty = document.createElement('div'); empty.className = 'empty';
         const mark = document.createElement('span'); mark.className = 'empty-mark'; mark.textContent = '✦'; mark.setAttribute('aria-hidden', 'true');
-        const title = document.createElement('strong'); title.textContent = 'Start the conversation';
-        const description = document.createElement('span'); description.textContent = 'Send a note to everyone here, or ask the agent to help move things forward.';
+        const title = document.createElement('strong'); title.textContent = state.roomId ? 'Start the conversation' : 'Welcome to your workspaces';
+        const description = document.createElement('span'); description.textContent = state.roomId
+          ? 'Send a note to everyone here, or ask the agent to help move things forward.'
+          : 'Choose a workspace from the sidebar, open a shared link, or use Settings to create one as an admin.';
         const copy = document.createElement('div'); copy.className = 'empty-copy'; copy.append(title, description);
-        empty.append(mark, copy); box.append(empty);
+        empty.append(mark, copy);
+        if (!state.roomId) {
+          const settings = document.createElement('button'); settings.className = 'empty-settings-button'; settings.type = 'button'; settings.textContent = 'Open settings';
+          settings.addEventListener('click', () => $('settingsButton').click()); empty.append(settings);
+        }
+        box.append(empty);
       }
       const messages = [...state.messages];
       if (state.progress.partialText) messages.push({ id: 'agent-streaming', authorName: 'Group Agent', kind: 'agent', text: state.progress.partialText, streaming: true });
@@ -255,6 +393,7 @@ export const appClientScript = String.raw`
       state.messages = nextMessages;
       state.progress = nextProgress;
       if (snapshot.workspace?.title) $('workspaceTitle').textContent = snapshot.workspace.title;
+      if (snapshot.workspace?.id && snapshot.workspace?.title) rememberWorkspace(snapshot.workspace);
       renderMessages();
     }
     function setSendEnabled() {
@@ -268,7 +407,7 @@ export const appClientScript = String.raw`
     }
     function connectSocket() {
       if (!state.roomId) {
-        setConnectionStatus('Open a workspace share link to join, or ask the admin to create one at /admin.', 'disconnected');
+        setConnectionStatus('Open a workspace share link to join, or ask the admin to create one in Settings.', 'disconnected');
         setSendEnabled();
         return;
       }
@@ -321,7 +460,8 @@ export const appClientScript = String.raw`
       state.name = $('authorName').value.trim() || 'Guest';
       $('error').textContent = '';
       connectSocket();
-      refreshMcp();
+      if (state.roomId) refreshMcp();
+      else { $('mcpSummary').textContent = 'workspace only'; $('mcpStatus').textContent = 'Open a shared workspace to see its connected tools.'; }
     }
     function send(target) {
       const text = $('composer').value.trim();
@@ -345,5 +485,52 @@ export const appClientScript = String.raw`
     $('sendGroup').onclick = () => send('group'); $('sendAgent').onclick = () => send('agent');
     $('composerForm').onsubmit = (event) => { event.preventDefault(); send('agent'); };
     $('refreshMcp').onclick = refreshMcp;
+    $('settingsButton').addEventListener('click', () => {
+      $('settingsDialog').showModal();
+      if (adminSecret && !state.adminUnlocked) refreshMainAdmin();
+    });
+    $('closeSettings').addEventListener('click', () => $('settingsDialog').close());
+    $('mainUnlockForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      adminSecret = $('mainAdminSecret').value;
+      $('mainAdminSecret').value = '';
+      sessionStorage.setItem(adminSecretKey, adminSecret);
+      await refreshMainAdmin();
+    });
+    $('lockAdmin').addEventListener('click', () => {
+      adminSecret = ''; sessionStorage.removeItem(adminSecretKey);
+      state.adminUnlocked = false; state.adminWorkspaces = []; state.mcpServers = [];
+      $('mainAdminContent').classList.add('hidden'); $('mainUnlockForm').classList.remove('hidden'); $('lockAdmin').classList.add('hidden');
+      setAdminStatus($('mainGateStatus'), 'Admin controls are locked. Guest workspace history stays in this browser.');
+      renderWorkspaceNav();
+    });
+    $('createWorkspace').addEventListener('click', async (event) => {
+      const button = event.currentTarget; button.disabled = true;
+      setAdminStatus($('mainWorkspaceStatus'), 'Creating a workspace…');
+      const title = 'Workspace · ' + new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date());
+      try {
+        const data = await adminApi('/api/admin/workspaces', { method: 'POST', body: JSON.stringify({ title }) });
+        rememberWorkspace(data.workspace);
+        setAdminStatus($('mainWorkspaceStatus'), 'Workspace created with an automatic title. Opening it now…');
+        await refreshMainAdmin();
+        location.assign('/w/' + encodeURIComponent(data.workspace.id));
+      } catch (error) { setAdminStatus($('mainWorkspaceStatus'), error.message, true); }
+      finally { button.disabled = false; }
+    });
+    $('mainMcpForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = $('mainMcpForm').querySelector('button[type="submit"]'); button.disabled = true;
+      setAdminStatus($('mainMcpStatus'), 'Checking the endpoint and discovering tools…');
+      try {
+        const data = await adminApi('/api/admin/mcp-servers', { method: 'POST', body: JSON.stringify({ name: $('mainMcpName').value.trim(), url: $('mainMcpUrl').value.trim() }) });
+        $('mainMcpName').value = ''; $('mainMcpUrl').value = '';
+        setAdminStatus($('mainMcpStatus'), data.server.name + ' connected with ' + data.server.tools.length + ' tools.');
+        await refreshMainAdmin();
+      } catch (error) { setAdminStatus($('mainMcpStatus'), error.message, true); }
+      finally { button.disabled = false; }
+    });
+    renderWorkspaceNav();
+    renderMessages();
     connectWorkspace();
+    if (adminSecret) refreshMainAdmin();
 `;

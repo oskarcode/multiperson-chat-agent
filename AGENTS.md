@@ -4,10 +4,10 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 
 ## Demo contract
 
-- One Worker serves the no-build guest UI, admin UI, and APIs.
-- Admin operations require the Worker secret `ADMIN_SECRET`; guests do not authenticate. A guest share URL is a bearer link that grants read/write access to that workspace.
+- One Worker serves the no-build chat/sidebar/settings UI, separate admin UI, and APIs.
+- Admin operations require the Worker secret `ADMIN_SECRET`; guests do not authenticate. A guest share URL is a bearer link that grants read/write access to that workspace. The chat sidebar may remember opened share links in browser-local storage, but that list is not identity, membership, or authorization.
 - `DemoAdmin` is a singleton Durable Object for the workspace index and up to eight named, globally shared MCP endpoints. Do not put chat transcripts or Pi sessions in it.
-- Guests join from `/w/<id>` share links; show only their editable display name in the guest UI, never an editable workspace-ID field or the ID in chat status.
+- Guests join from `/w/<id>` share links; show only their editable display name in the guest UI, never an editable workspace-ID field or the ID in chat status. Show the browser's visited-workspace list in the sidebar; after admin-secret entry in Settings, show the global workspace list and admin-only delete controls. Guest list data is device-local and must not be described as an account or invitation list.
 - Each created workspace ID maps to one SQLite-backed `ChatRoom` Durable Object. That object owns workspace metadata, the room transcript, and its independent Pi Durable Harness/conversation.
 - Admin deletion must disable the workspace in the global index before cleanup, close the Pi Durable Harness, cancel alarms, clear the room's SQLite data, and retain only a deletion tombstone so stale links cannot recreate it. Keep failed cleanup retryable from the admin list.
 - Group messages, Ask Agent requests, assistant replies, reminders, and progress are stored/projected from Pi Durable. Do not add a second transcript store.
@@ -23,7 +23,7 @@ This repository is a beginner-friendly Cloudflare Workers demo, not a production
 - Use Pi Durable primitives for agent, task, transcript, and progress behavior. Do not implement a custom agent loop or custom event-diff protocol.
 - Follow-up review should examine recent conversation context for unresolved requests, questions, decisions, and blockers. Use the 15-minute quiet-period debounce; new group messages and completed agent replies must invalidate/review stale candidates.
 - Validate workspace IDs and MCP URLs. Admin endpoints must fail closed without `ADMIN_SECRET`; never put it in Wrangler `vars`, logs, URLs, or browser localStorage.
-- Keep admin secret values only in ignored `.dev.vars` locally and Wrangler secrets remotely. Never print or commit them.
+- Keep admin secret values only in ignored `.dev.vars` locally, Wrangler secrets remotely, and the current browser tab's `sessionStorage` after intentional admin entry. Never put the secret in `localStorage`, print it, or commit it.
 - Update `README.md` and `docs/architecture.md` with architecture behavior in the same change.
 
 ## Storage and deployment changes

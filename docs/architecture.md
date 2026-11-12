@@ -5,8 +5,8 @@ The demo has one admin/control Durable Object for workspace discovery and global
 ## Runtime paths
 
 ```text
-Admin browser
-  -> Worker /admin + /api/admin/*
+Admin browser -> chat sidebar Settings (or legacy /admin page)
+  -> Worker /api/admin/*
   -> ADMIN_SECRET checked in the Worker
   -> singleton DemoAdmin Durable Object
        -> workspace index and shared list of named MCP servers
@@ -35,9 +35,9 @@ Normal group messages are passive entries; **Ask Agent** submits an input to the
 
 ## Admin and guest access
 
-The admin page at `/admin` sends a bearer `ADMIN_SECRET` header to admin APIs. The secret is held as a Wrangler Worker secret and is never returned by the Worker. The browser keeps the entered secret only for that tab's `sessionStorage` session. The shared chat UI omits an admin shortcut because it cannot identify an admin separately from a guest; admins can open `/admin` directly. Workspace chat APIs intentionally require no auth: possession of the random share URL grants read/write access.
+The main chat sidebar's Settings panel and the separate `/admin` page send a bearer `ADMIN_SECRET` header to admin APIs. The secret is held as a Wrangler Worker secret and is never returned by the Worker. The browser keeps the entered secret only in that tab's `sessionStorage`, never `localStorage`. Admins can see the global workspace index and delete controls after unlocking; workspace creation uses an automatic title. Workspace chat APIs intentionally require no auth: possession of the random share URL grants read/write access.
 
-The Worker verifies a workspace ID is active in the admin index before serving `/w/:id` or any workspace API route. Guests can change their display name; the share URL selects the workspace, with no editable ID field or ID in the chat status. Legacy `/api/rooms/:id/*` routes also require an active index entry. This is a demo gate, not a full account/ACL system.
+The Worker verifies a workspace ID is active in the admin index before serving `/w/:id` or any workspace API route. Guests can change their display name; the share URL selects the workspace, with no editable ID field or ID in chat status. The sidebar remembers guest workspaces opened in that browser using local browser storage; this is only a convenience list, not cross-device sync, identity, invitation, or membership. Legacy `/api/rooms/:id/*` routes also require an active index entry. This is a demo gate, not a full account/ACL system.
 
 Deleting a workspace first marks its index record as pending deletion, which immediately disables share-link access. `ChatRoom` closes its Pi Durable Harness, cancels its alarm, clears the SQLite storage, and retains only a deletion tombstone so a stale link cannot recreate the conversation. `DemoAdmin` removes the index record after cleanup succeeds; if cleanup fails, the disabled record remains in the admin list with a retry action.
 
@@ -58,7 +58,7 @@ Each discovered tool carries its `serverId` and `serverName` in the Pi tool cont
 - `src/session/schedule-task.ts`, `src/session/schedule-tools.ts` — durable reminders.
 - `src/session/follow-up-classifier.ts`, `src/session/follow-up-task.ts` — proactive follow-ups.
 - `src/integrations/mcp.ts` — public Streamable HTTP MCP client; `src/session/capability-tools.ts` routes namespaced tool calls to their configured server.
-- `src/ui/` — no-build guest chat with inline per-response activity, and secret-gated admin page.
+- `src/ui/` — no-build chat with local workspace navigation, secret-gated sidebar Settings, inline per-response activity, and a separate admin page.
 - `worker-configuration.d.ts` — generated Worker binding types.
 
 ## Deployment and data

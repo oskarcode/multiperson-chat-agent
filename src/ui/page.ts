@@ -1,17 +1,18 @@
 export function appPage(modelName: string, modelId: string): string {
   return String.raw`
   <main class="workspace-shell">
-    <aside class="workspace-sidebar" aria-label="Workspace details">
+    <aside class="workspace-sidebar" aria-label="Workspace navigation">
       <a class="brand" href="/" aria-label="MultiPerson Chat home">
         <span class="brand-mark" aria-hidden="true">✦</span>
         <span class="brand-copy"><span class="brand-name">MULTIPERSON CHAT</span><span class="brand-caption">shared workspace</span></span>
       </a>
 
-      <section class="sidebar-block workspace-card" aria-labelledby="workspaceLabel">
-        <p id="workspaceLabel" class="eyebrow">Workspace</p>
-        <h1 id="workspaceTitle">MultiPerson Chat</h1>
-        <div class="access-note"><span class="access-icon" aria-hidden="true">↗</span><span>Anyone with this link can read and post</span></div>
+      <section class="workspace-nav-block" aria-labelledby="workspaceNavHeading">
+        <div class="workspace-nav-heading"><p id="workspaceNavHeading" class="eyebrow">Workspaces</p><span id="workspaceListScope" class="workspace-list-scope">This browser</span></div>
+        <ul id="workspaceList" class="workspace-nav-list" aria-live="polite"><li class="workspace-nav-empty">Loading workspaces…</li></ul>
       </section>
+
+      <div class="sidebar-spacer"></div>
 
       <section class="sidebar-block profile-block" aria-labelledby="profileLabel">
         <p id="profileLabel" class="eyebrow">Your profile</p>
@@ -29,14 +30,15 @@ export function appPage(modelName: string, modelId: string): string {
         </div>
       </details>
 
-      <div class="sidebar-spacer"></div>
-      <div class="sidebar-public-note"><span class="note-dot" aria-hidden="true"></span><span>This is a public demo room. Share the link only with people you trust.</span></div>
-      <footer class="sidebar-footer"><span>Powered by Pi Durable · ${modelName}</span></footer>
+      <footer class="sidebar-footer">
+        <button id="settingsButton" class="sidebar-settings-button" type="button"><span class="settings-gear" aria-hidden="true">⚙</span><span>Settings</span><span class="settings-arrow" aria-hidden="true">↗</span></button>
+        <span class="sidebar-model-note">Powered by Pi Durable · ${modelName}</span>
+      </footer>
     </aside>
 
     <section class="workspace-main" aria-label="Workspace conversation">
       <header class="chat-header">
-        <div class="chat-heading"><p class="eyebrow">Shared conversation</p><p class="chat-subtitle">A place for everyone in this workspace to think together.</p></div>
+        <div class="chat-heading"><p class="eyebrow">Current workspace</p><h1 id="workspaceTitle" class="chat-workspace-title">MultiPerson Chat</h1><p class="chat-subtitle">A place for everyone in this workspace to think together.</p></div>
         <div class="header-status"><span class="connection-pill"><span class="connection-dot" aria-hidden="true"></span><span id="status" role="status">Connecting…</span></span></div>
       </header>
 
@@ -57,5 +59,40 @@ export function appPage(modelName: string, modelId: string): string {
       </section>
     </section>
   </main>
+
+  <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle">
+    <div class="settings-modal">
+      <header class="settings-header"><div><p class="eyebrow">Workspace controls</p><h2 id="settingsTitle">Settings</h2><p class="muted">Manage your local workspace list, shared rooms, and MCP connectors.</p></div><button id="closeSettings" class="settings-close" type="button" aria-label="Close settings">×</button></header>
+      <section class="settings-section settings-gate-section">
+        <div class="settings-section-heading"><span class="section-icon" aria-hidden="true">⌑</span><div><h3>Admin access</h3><p class="muted">Enter the Worker’s admin secret to manage all workspaces and shared tools.</p></div></div>
+        <form id="mainUnlockForm" class="settings-unlock-form">
+          <label for="mainAdminSecret">Admin secret<input id="mainAdminSecret" type="password" autocomplete="current-password" required placeholder="Enter the admin secret" /></label>
+          <button type="submit">Unlock controls <span aria-hidden="true">→</span></button>
+        </form>
+        <div class="settings-gate-actions"><p id="mainGateStatus" class="admin-status" role="status">Guest workspace links are public bearer links. Admin controls are secret-protected.</p><button id="lockAdmin" class="text-button hidden" type="button">Lock admin controls</button></div>
+      </section>
+      <div id="mainAdminContent" class="hidden">
+        <section class="settings-section">
+          <div class="settings-section-heading"><span class="section-icon" aria-hidden="true">▦</span><div><h3>All workspaces</h3><p class="muted">Create a room with an automatic title, copy its share link, or delete it.</p></div></div>
+          <button id="createWorkspace" type="button">Create workspace <span aria-hidden="true">+</span></button>
+          <p id="mainWorkspaceStatus" class="admin-status" role="status"></p>
+          <ul id="settingsWorkspaces" class="settings-list"></ul>
+          <p class="admin-note warning-note">Deleting a workspace permanently removes its conversation and scheduled work. Its share link stops working.</p>
+        </section>
+        <section class="settings-section">
+          <div class="settings-section-heading"><span class="section-icon" aria-hidden="true">⌘</span><div><h3>Shared MCP connectors</h3><p class="muted">Add up to eight public HTTPS Streamable HTTP servers, shared by all workspaces.</p></div></div>
+          <form id="mainMcpForm" class="settings-mcp-form">
+            <label>Server name<input id="mainMcpName" maxlength="80" required placeholder="e.g. Cloudflare docs" /></label>
+            <label>MCP endpoint URL<input id="mainMcpUrl" type="url" inputmode="url" required placeholder="https://mcp.example.com/mcp" maxlength="2048" /></label>
+            <button type="submit">Add connector <span aria-hidden="true">+</span></button>
+          </form>
+          <p id="mainMcpStatus" class="admin-status" role="status"></p>
+          <ul id="settingsMcpServers" class="settings-list"></ul>
+          <p class="admin-note">OAuth and private endpoints are not supported. Connector configuration is shared across workspaces.</p>
+        </section>
+      </div>
+      <p class="settings-guest-note">Without an account, guest workspace history is saved only in this browser. Open a workspace’s share link here to add it to the list.</p>
+    </div>
+  </dialog>
 `;
 }
